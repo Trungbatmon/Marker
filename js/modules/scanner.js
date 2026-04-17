@@ -19,17 +19,13 @@ const Scanner = (() => {
         await startCamera();
     }
 
-    async function startCamera() {
+    async function startCamera(retryAny = false) {
         try {
             // Stop existing stream
             stopCamera();
 
             const constraints = {
-                video: {
-                    facingMode: _facingMode,
-                    width: { ideal: CONSTANTS.PREFERRED_CAMERA_WIDTH },
-                    height: { ideal: CONSTANTS.PREFERRED_CAMERA_HEIGHT },
-                },
+                video: retryAny ? true : { facingMode: _facingMode },
                 audio: false,
             };
 
@@ -37,9 +33,23 @@ const Scanner = (() => {
             const video = document.getElementById('scanner-video');
             if (video) {
                 video.srcObject = _stream;
-                await video.play();
+                
+                // Wait for video to actually start playing
+                video.onloadedmetadata = async () => {
+                    try {
+                        await video.play();
+                    } catch(e) {
+                        console.warn('Auto-play blocked, waiting for user interaction');
+                    }
+                };
             }
         } catch (error) {
+            // Fallback: If "environment" or "user" is not allowed/found, try ANY camera.
+            if (!retryAny && (error.name === 'OverconstrainedError' || error.name === 'NotFoundError' || error.name === 'AbortError')) {
+                console.warn('[Scanner] Fallback to any camera');
+                return startCamera(true);
+            }
+            
             console.error('[Scanner] Camera error:', error);
             
             // Show explicit error and prompt button
