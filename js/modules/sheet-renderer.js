@@ -1,0 +1,481 @@
+/**
+ * Marker — Sheet Renderer Module
+ * Renders answer sheets to Canvas (preview) and PDF (export)
+ * Rules: R1.1-R1.8 strictly enforced
+ */
+
+const SheetRenderer = (() => {
+
+    const C = CONSTANTS;
+
+    /**
+     * Render answer sheet to canvas
+     * @param {HTMLCanvasElement} canvas
+     * @param {Object} config - Template configuration
+     * @param {number} scale - mm to pixel scale factor
+     */
+    function renderToCanvas(canvas, config, scale) {
+        const ctx = canvas.getContext('2d');
+        const s = (mm) => mm * scale; // Convert mm to canvas pixels
+
+        // Clear
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.save();
+
+        // ── 1. Corner Markers (R1.1) ──
+        ctx.fillStyle = '#000000';
+        const markerS = s(C.MARKER_SIZE_MM);
+        const margin = s(C.SAFE_MARGIN_MM);
+
+        // Top-left
+        ctx.fillRect(margin, margin, markerS, markerS);
+        // Top-right
+        ctx.fillRect(canvas.width - margin - markerS, margin, markerS, markerS);
+        // Bottom-left
+        ctx.fillRect(margin, canvas.height - margin - markerS, markerS, markerS);
+        // Bottom-right
+        ctx.fillRect(canvas.width - margin - markerS, canvas.height - margin - markerS, markerS, markerS);
+
+        // ── 2. Logo, Header Text & Info Fields ──
+        const contentStartX = margin + markerS + s(C.MARKER_TO_CONTENT_MM);
+        let currentY = margin + markerS + s(5);
+
+        // Logo (Async draw, okay for preview)
+        if (config.logoBase64) {
+            const img = new Image();
+            img.onload = () => {
+                ctx.drawImage(img, contentStartX, margin + markerS, s(18), s(18));
+            };
+            img.src = config.logoBase64;
+        }
+
+        // Header Text
+        const headerLines = (config.headerText || '').split('\n').filter(l => l.trim());
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
+        if (headerLines.length > 0) {
+            ctx.font = `bold ${s(5)}px Inter, Arial, sans-serif`;
+            headerLines.forEach((line) => {
+                ctx.fillText(line, canvas.width / 2, currentY);
+                currentY += s(7);
+            });
+        }
+
+        currentY += s(3);
+
+        // Info Fields
+        if (config.hasInfoFields !== false) {
+            let infoY = currentY;
+            if (config.logoBase64) {
+                const logoBottom = margin + markerS + s(18) + s(5);
+                if (infoY < logoBottom) infoY = logoBottom;
+            }
+
+            ctx.font = `${s(3.5)}px Inter, Arial, sans-serif`;
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#333333';
+            ctx.lineWidth = s(0.3);
+
+            const isVi = I18n.getLang() === 'vi';
+            
+            // Name Line
+            ctx.fillText(isVi ? 'Họ và tên / Full Name:' : 'Full Name:', contentStartX, infoY);
+            ctx.setLineDash([s(1), s(1.5)]);
+            ctx.beginPath();
+            ctx.moveTo(contentStartX + (isVi ? s(40) : s(20)), infoY);
+            ctx.lineTo(contentStartX + s(110), infoY);
+            ctx.stroke();
+
+            infoY += s(8);
+
+            // Class & DOB Lines
+            ctx.fillText(isVi ? 'Lớp / Class:' : 'Class:', contentStartX, infoY);
+            ctx.beginPath();
+            ctx.moveTo(contentStartX + (isVi ? s(22) : s(12)), infoY);
+            ctx.lineTo(contentStartX + s(50), infoY);
+            ctx.stroke();
+
+            ctx.fillText(isVi ? 'Ngày sinh / DOB:' : 'DOB:', contentStartX + s(55), infoY);
+            ctx.beginPath();
+            ctx.moveTo(contentStartX + (isVi ? s(85) : s(68)), infoY);
+            ctx.lineTo(contentStartX + s(110), infoY);
+            ctx.stroke();
+            
+            ctx.setLineDash([]);
+            currentY = infoY + s(10);
+        }
+
+        // ── 3. Student ID Section ──
+        const sidStartX = contentStartX;
+        const sidStartY = currentY;
+        const sidDigits = config.studentIdDigits || C.STUDENT_ID_DIGITS;
+
+        drawBubbleGrid(ctx, {
+            label: 'SBD',
+            startX: sidStartX,
+            startY: sidStartY,
+            columns: sidDigits,
+            rows: 10,
+            values: ['0','1','2','3','4','5','6','7','8','9'],
+            scale,
+            showColumnHeaders: true,
+        });
+
+        // ── 4. Exam Code Section (R1.2 - manual) ──
+        if (config.hasExamCodeSection !== false) {
+            const ecDigits = config.examCodeDigits || C.EXAM_CODE_DIGITS;
+            const ecStartX = sidStartX + (sidDigits * s(C.BUBBLE_SPACING_X_MM)) + s(20);
+
+            drawBubbleGrid(ctx, {
+                label: I18n.getLang() === 'vi' ? 'Mã đề' : 'Code',
+                startX: ecStartX,
+                startY: sidStartY,
+                columns: ecDigits,
+                rows: 10,
+                values: ['0','1','2','3','4','5','6','7','8','9'],
+                scale,
+                showColumnHeaders: true,
+            });
+        }
+
+        // ── 5. Separator Line ──
+        const separatorY = sidStartY + (10 * s(C.BUBBLE_SPACING_Y_MM)) + s(8);
+        ctx.strokeStyle = '#999999';
+        ctx.lineWidth = s(0.3);
+        ctx.setLineDash([s(2), s(2)]);
+        ctx.beginPath();
+        ctx.moveTo(margin + markerS, separatorY);
+        ctx.lineTo(canvas.width - margin - markerS, separatorY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // ── R1.8: Detachable ID zone marker (future) ──
+        if (config.detachableId) {
+            ctx.strokeStyle = '#CC0000';
+            ctx.lineWidth = s(0.5);
+            ctx.setLineDash([s(3), s(1)]);
+            ctx.beginPath();
+            ctx.moveTo(0, separatorY);
+            ctx.lineTo(canvas.width, separatorY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            // Scissors icon placeholder
+            ctx.font = `${s(4)}px Arial`;
+            ctx.fillStyle = '#CC0000';
+            ctx.textAlign = 'left';
+            ctx.fillText('✂', s(3), separatorY + s(1));
+        }
+
+        // ── 6. Questions Grid ──
+        const questionsStartY = separatorY + s(8);
+        const questionsPerCol = Math.ceil(config.questionCount / config.columns);
+        const colWidth = (canvas.width - 2 * margin - 2 * markerS) / config.columns;
+
+        for (let col = 0; col < config.columns; col++) {
+            const colStartX = margin + markerS + s(C.MARKER_TO_CONTENT_MM) + (col * colWidth);
+
+            for (let row = 0; row < questionsPerCol; row++) {
+                const qNum = col * questionsPerCol + row + 1;
+                if (qNum > config.questionCount) break;
+
+                const y = questionsStartY + (row * s(C.BUBBLE_SPACING_Y_MM));
+
+                // Timing mark (R1.6) — only for first column
+                if (col === 0) {
+                    ctx.fillStyle = '#000000';
+                    ctx.fillRect(
+                        margin + markerS + s(2),
+                        y - s(C.TIMING_MARK_H_MM / 2),
+                        s(C.TIMING_MARK_W_MM),
+                        s(C.TIMING_MARK_H_MM)
+                    );
+                }
+
+                // Question number
+                ctx.fillStyle = '#333333';
+                ctx.font = `${s(3)}px Inter, Arial, sans-serif`;
+                ctx.textAlign = 'right';
+                ctx.fillText(String(qNum), colStartX + s(8), y + s(1.5));
+
+                // Bubbles
+                const bubbleStartX = colStartX + s(11);
+                for (let opt = 0; opt < config.optionCount; opt++) {
+                    const bx = bubbleStartX + (opt * s(C.BUBBLE_SPACING_X_MM));
+                    const by = y;
+                    const radius = s(C.BUBBLE_DIAMETER_MM / 2);
+
+                    // Draw bubble circle
+                    ctx.beginPath();
+                    ctx.arc(bx, by, radius, 0, Math.PI * 2);
+                    ctx.strokeStyle = '#333333';
+                    ctx.lineWidth = s(0.3);
+                    ctx.stroke();
+
+                    // Option label inside/above bubble
+                    ctx.fillStyle = '#555555';
+                    ctx.font = `${s(2.5)}px Inter, Arial, sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText(C.OPTION_LABELS[opt], bx, by + s(1));
+                }
+            }
+        }
+
+        ctx.restore();
+    }
+
+    /**
+     * Draw a bubble grid (used for Student ID and Exam Code sections)
+     */
+    function drawBubbleGrid(ctx, { label, startX, startY, columns, rows, values, scale, showColumnHeaders }) {
+        const s = (mm) => mm * scale;
+
+        // Label
+        ctx.fillStyle = '#333333';
+        ctx.font = `bold ${s(3.5)}px Inter, Arial, sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.fillText(label, startX, startY - s(3));
+
+        for (let col = 0; col < columns; col++) {
+            const cx = startX + (col * s(C.BUBBLE_SPACING_X_MM));
+
+            // Column header (digit position)
+            if (showColumnHeaders) {
+                ctx.fillStyle = '#999999';
+                ctx.font = `${s(2.5)}px Inter, Arial, sans-serif`;
+                ctx.textAlign = 'center';
+            }
+
+            for (let row = 0; row < rows; row++) {
+                const cy = startY + (row * s(C.BUBBLE_SPACING_Y_MM));
+                const radius = s(C.BUBBLE_DIAMETER_MM / 2);
+
+                // Bubble
+                ctx.beginPath();
+                ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+                ctx.strokeStyle = '#333333';
+                ctx.lineWidth = s(0.3);
+                ctx.stroke();
+
+                // Value label
+                ctx.fillStyle = '#555555';
+                ctx.font = `${s(2.5)}px Inter, Arial, sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.fillText(values[row], cx, cy + s(1));
+            }
+        }
+    }
+
+    /**
+     * Generate PDF using jsPDF
+     * @param {Object} config - Template configuration
+     */
+    function generatePDF(config) {
+        const { jsPDF } = window.jspdf || window;
+        if (!jsPDF) {
+            throw new Error('jsPDF not loaded. Please wait for download.');
+        }
+
+        const doc = new jsPDF({
+            orientation: config.orientation || 'portrait',
+            unit: 'mm',
+            format: config.paperSize?.toLowerCase() || 'a4',
+        });
+
+        const pageW = C.A4_WIDTH_MM;
+        const pageH = C.A4_HEIGHT_MM;
+
+        // ── 1. Corner Markers ──
+        doc.setFillColor(0, 0, 0);
+        const m = C.SAFE_MARGIN_MM;
+        const ms = C.MARKER_SIZE_MM;
+        doc.rect(m, m, ms, ms, 'F');
+        doc.rect(pageW - m - ms, m, ms, ms, 'F');
+        doc.rect(m, pageH - m - ms, ms, ms, 'F');
+        doc.rect(pageW - m - ms, pageH - m - ms, ms, ms, 'F');
+
+        // ── 2. Logo, Header Text & Info Fields ──
+        const contentStartX = m + ms + C.MARKER_TO_CONTENT_MM;
+        let currentY = m + ms + 5;
+
+        // Logo
+        if (config.logoBase64) {
+            try {
+                let format = 'PNG';
+                if (config.logoBase64.includes('image/jpeg')) format = 'JPEG';
+                doc.addImage(config.logoBase64, format, contentStartX, m + ms, 18, 18);
+            } catch(e) { console.warn('Could not add logo', e); }
+        }
+
+        // Header Text
+        const headerLines = (config.headerText || '').split('\n').filter(l => l.trim());
+        if (headerLines.length > 0) {
+            doc.setFontSize(14);
+            doc.setFont(undefined, 'bold');
+            headerLines.forEach((line) => {
+                doc.text(line, pageW / 2, currentY, { align: 'center' });
+                currentY += 6;
+            });
+        }
+
+        currentY += 3;
+
+        // Info Fields
+        if (config.hasInfoFields !== false) {
+            let infoY = currentY;
+            if (config.logoBase64) {
+                const logoBottom = m + ms + 18 + 5;
+                if (infoY < logoBottom) infoY = logoBottom;
+            }
+
+            doc.setFontSize(10);
+            doc.setFont(undefined, 'normal');
+            doc.setDrawColor(100);
+            doc.setLineWidth(0.3);
+            doc.setLineDashPattern([1, 1.5], 0);
+
+            const isVi = I18n.getLang() === 'vi';
+            
+            // Name Line
+            doc.text(isVi ? 'Ho va ten / Full Name:' : 'Full Name:', contentStartX, infoY);
+            doc.line(contentStartX + (isVi ? 40 : 20), infoY + 1, contentStartX + 110, infoY + 1);
+
+            infoY += 8;
+
+            // Class & DOB Lines
+            doc.text(isVi ? 'Lop / Class:' : 'Class:', contentStartX, infoY);
+            doc.line(contentStartX + (isVi ? 22 : 12), infoY + 1, contentStartX + 50, infoY + 1);
+
+            doc.text(isVi ? 'Ngay sinh / DOB:' : 'DOB:', contentStartX + 55, infoY);
+            doc.line(contentStartX + (isVi ? 85 : 68), infoY + 1, contentStartX + 110, infoY + 1);
+            
+            doc.setLineDashPattern([], 0);
+            currentY = infoY + 10;
+        }
+
+        // ── 3. Student ID ──
+        const sidDigits = config.studentIdDigits || C.STUDENT_ID_DIGITS;
+        const sidStartX = contentStartX;
+        const sidStartY = currentY + 5;
+
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'bold');
+        doc.text('SBD', sidStartX, sidStartY - 3);
+
+        doc.setFontSize(7);
+        doc.setFont(undefined, 'normal');
+        const bubbleR = C.BUBBLE_DIAMETER_MM / 2;
+
+        for (let col = 0; col < sidDigits; col++) {
+            const cx = sidStartX + (col * C.BUBBLE_SPACING_X_MM);
+            for (let row = 0; row < 10; row++) {
+                const cy = sidStartY + (row * C.BUBBLE_SPACING_Y_MM);
+                doc.circle(cx, cy, bubbleR, 'S');
+                doc.text(String(row), cx, cy + 1, { align: 'center' });
+            }
+        }
+
+        // ── 4. Exam Code ──
+        if (config.hasExamCodeSection !== false) {
+            const ecDigits = config.examCodeDigits || C.EXAM_CODE_DIGITS;
+            const ecStartX = sidStartX + (sidDigits * C.BUBBLE_SPACING_X_MM) + 20;
+
+            doc.setFontSize(10);
+            doc.setFont(undefined, 'bold');
+            doc.text(I18n.getLang() === 'vi' ? 'Ma de' : 'Code', ecStartX, sidStartY - 3);
+
+            doc.setFontSize(7);
+            doc.setFont(undefined, 'normal');
+            for (let col = 0; col < ecDigits; col++) {
+                const cx = ecStartX + (col * C.BUBBLE_SPACING_X_MM);
+                for (let row = 0; row < 10; row++) {
+                    const cy = sidStartY + (row * C.BUBBLE_SPACING_Y_MM);
+                    doc.circle(cx, cy, bubbleR, 'S');
+                    doc.text(String(row), cx, cy + 1, { align: 'center' });
+                }
+            }
+        }
+
+        // ── 5. Separator ──
+        const sepY = sidStartY + (10 * C.BUBBLE_SPACING_Y_MM) + 5;
+        doc.setDrawColor(150);
+        doc.setLineDashPattern([2, 2], 0);
+        doc.line(m + ms, sepY, pageW - m - ms, sepY);
+        doc.setLineDashPattern([], 0);
+
+        // ── 6. Questions ──
+        const qStartY = sepY + 6;
+        const questionsPerCol = Math.ceil(config.questionCount / config.columns);
+        const usableW = pageW - 2 * m - 2 * ms;
+        const colW = usableW / config.columns;
+
+        doc.setDrawColor(50);
+        doc.setFontSize(8);
+
+        for (let col = 0; col < config.columns; col++) {
+            const colX = m + ms + C.MARKER_TO_CONTENT_MM + (col * colW);
+
+            for (let row = 0; row < questionsPerCol; row++) {
+                const qNum = col * questionsPerCol + row + 1;
+                if (qNum > config.questionCount) break;
+
+                const y = qStartY + (row * C.BUBBLE_SPACING_Y_MM);
+
+                // Check if we need a new page
+                if (y > pageH - m - ms - 5) {
+                    doc.addPage();
+                    // Re-draw markers on new page
+                    doc.setFillColor(0, 0, 0);
+                    doc.rect(m, m, ms, ms, 'F');
+                    doc.rect(pageW - m - ms, m, ms, ms, 'F');
+                    doc.rect(m, pageH - m - ms, ms, ms, 'F');
+                    doc.rect(pageW - m - ms, pageH - m - ms, ms, ms, 'F');
+                    break; // Simplified: handle overflow later
+                }
+
+                // Timing mark (first column only)
+                if (col === 0) {
+                    doc.setFillColor(0, 0, 0);
+                    doc.rect(
+                        m + ms + 2,
+                        y - C.TIMING_MARK_H_MM / 2,
+                        C.TIMING_MARK_W_MM,
+                        C.TIMING_MARK_H_MM,
+                        'F'
+                    );
+                }
+
+                // Question number
+                doc.setFontSize(8);
+                doc.setFont(undefined, 'normal');
+                doc.setTextColor(50);
+                doc.text(String(qNum) + '.', colX + 7, y + 1, { align: 'right' });
+
+                // Bubbles
+                doc.setDrawColor(50);
+                doc.setFontSize(7);
+                const bStartX = colX + 10;
+                for (let opt = 0; opt < config.optionCount; opt++) {
+                    const bx = bStartX + (opt * C.BUBBLE_SPACING_X_MM);
+                    doc.circle(bx, y, bubbleR, 'S');
+                    doc.setTextColor(80);
+                    doc.text(C.OPTION_LABELS[opt], bx, y + 1, { align: 'center' });
+                }
+            }
+        }
+
+        // Save
+        const filename = `AnswerSheet_${config.questionCount}Q_${config.optionCount}Opt.pdf`;
+        doc.save(filename);
+    }
+
+    return {
+        renderToCanvas,
+        generatePDF,
+    };
+})();
+
+if (typeof window !== 'undefined') {
+    window.SheetRenderer = SheetRenderer;
+}

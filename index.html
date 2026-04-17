@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0e1a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="description" content="Marker — Phần mềm chấm thi trắc nghiệm qua camera điện thoại. Scan, chấm điểm tự động, xuất Excel.">
+    <meta name="mobile-web-app-capable" content="yes">
+
+    <title>Marker — Chấm Thi Trắc Nghiệm</title>
+
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
+    <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/variables.css?v=3">
+    <link rel="stylesheet" href="css/base.css?v=3">
+    <link rel="stylesheet" href="css/components.css?v=3">
+    <link rel="stylesheet" href="css/views.css?v=3">
+    <link rel="stylesheet" href="css/animations.css?v=3">
+</head>
+<body>
+
+    <!-- ══════════════════════════════════════════
+         SPLASH SCREEN
+         ══════════════════════════════════════════ -->
+    <div id="splash-screen" class="splash-screen">
+        <div class="splash-logo">
+            <!-- Marker icon: checkmark in document -->
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 11l3 3L22 4"/>
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+            </svg>
+        </div>
+        <div class="splash-title" data-i18n="app.name">Marker</div>
+        <div class="splash-subtitle" data-i18n="app.tagline">Chấm Thi Trắc Nghiệm</div>
+        <div class="splash-progress">
+            <div class="loading-progress">
+                <div class="loading-progress-bar" id="splash-progress-bar" style="width: 0%"></div>
+            </div>
+        </div>
+        <div class="loading-text" id="splash-status" data-i18n="app.loading">Đang tải...</div>
+    </div>
+
+    <!-- ══════════════════════════════════════════
+         MAIN APP
+         ══════════════════════════════════════════ -->
+    <div id="app">
+        <!-- ── Header ── -->
+        <header id="app-header">
+            <div class="flex-between" style="width:100%">
+                <div class="flex gap-3" style="align-items:center">
+                    <button id="header-back-btn" class="btn-icon btn-ghost" style="display:none" aria-label="Back">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>
+                        </svg>
+                    </button>
+                    <h1 id="header-title" style="font-size:var(--font-size-lg);font-weight:var(--font-weight-bold)">
+                        <span style="background:linear-gradient(135deg,var(--color-primary),var(--color-accent));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text" data-i18n="app.name">Marker</span>
+                    </h1>
+                </div>
+                <div class="flex gap-2">
+                    <button id="header-action-btn" class="btn-icon btn-ghost" style="display:none" aria-label="Action">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- ── Main Content ── -->
+        <main id="app-content">
+            <!-- Dashboard View -->
+            <section id="view-dashboard" class="view view-dashboard active">
+                <div class="welcome-banner">
+                    <div class="welcome-text" data-i18n="dashboard.welcome">Xin chào!</div>
+                    <div class="welcome-sub" data-i18n="dashboard.welcome_sub">Chấm bài nhanh chóng, chính xác</div>
+                </div>
+
+                <div class="section-title" data-i18n="dashboard.stats">Tổng quan</div>
+                <div class="stat-grid stagger-children" id="dashboard-stats">
+                    <div class="stat-card stat-primary">
+                        <div class="stat-value" id="stat-total-projects">0</div>
+                        <div class="stat-label" data-i18n="dashboard.total_projects">Dự án</div>
+                    </div>
+                    <div class="stat-card stat-success">
+                        <div class="stat-value" id="stat-total-scanned">0</div>
+                        <div class="stat-label" data-i18n="dashboard.total_scanned">Đã chấm</div>
+                    </div>
+                    <div class="stat-card stat-warning">
+                        <div class="stat-value" id="stat-today-scanned">0</div>
+                        <div class="stat-label" data-i18n="dashboard.today_scanned">Hôm nay</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-avg-score">--</div>
+                        <div class="stat-label" data-i18n="dashboard.avg_score">Điểm TB</div>
+                    </div>
+                </div>
+
+                <div class="section-title" data-i18n="dashboard.projects">Dự án chấm</div>
+                <div id="project-list" class="project-list">
+                    <!-- Projects rendered dynamically -->
+                </div>
+
+                <!-- Empty state -->
+                <div id="dashboard-empty" class="empty-state" style="display:none">
+                    <div class="empty-state-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="80" height="80">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <path d="M14 2v6h6"/><line x1="12" y1="18" x2="12" y2="12"/>
+                            <line x1="9" y1="15" x2="15" y2="15"/>
+                        </svg>
+                    </div>
+                    <div class="empty-state-title" data-i18n="dashboard.no_projects">Chưa có dự án nào</div>
+                    <div class="empty-state-desc" data-i18n="dashboard.no_projects_desc">Tạo dự án đầu tiên để bắt đầu chấm bài</div>
+                    <button class="btn btn-primary" id="btn-create-first-project" data-i18n="dashboard.create_first">Tạo dự án</button>
+                </div>
+            </section>
+
+            <!-- Scanner View -->
+            <section id="view-scanner" class="view view-scanner">
+                <div class="scanner-container" id="scanner-container">
+                    <video id="scanner-video" class="scanner-video" autoplay playsinline muted></video>
+                    <div class="scanner-overlay">
+                        <div class="scanner-guide">
+                            <div class="scanner-guide-bottom"></div>
+                        </div>
+                        <div class="scanner-scan-line"></div>
+                    </div>
+                    <div class="scanner-status" data-i18n="scanner.guide">Đặt phiếu trong khung</div>
+                    <div class="scanner-controls">
+                        <button class="scanner-secondary-btn" id="btn-flip-camera" data-i18n-aria="scanner.flip_camera">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/><path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5"/>
+                                <polyline points="9 9 4 4 9 1"/><polyline points="15 15 20 20 15 23"/>
+                            </svg>
+                        </button>
+                        <button class="scanner-capture-btn scan-pulse" id="btn-capture" aria-label="Capture"></button>
+                        <button class="scanner-secondary-btn" id="btn-flash" data-i18n-aria="scanner.flash">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Sheet Designer View -->
+            <section id="view-designer" class="view view-designer">
+                <h2 style="font-size:var(--font-size-xl);margin-bottom:var(--space-4)" data-i18n="designer.title">Thiết kế phiếu trả lời</h2>
+                <div id="designer-content">
+                    <!-- Rendered by sheet-designer.js -->
+                </div>
+            </section>
+
+            <!-- Results View -->
+            <section id="view-results" class="view view-results">
+                <div class="results-header flex-between">
+                    <h2 style="font-size:var(--font-size-xl)" data-i18n="results.title">Kết quả chấm</h2>
+                    <button class="btn btn-sm btn-secondary" id="btn-export-excel">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        <span data-i18n="results.export_excel">Xuất Excel</span>
+                    </button>
+                </div>
+                <div id="results-content">
+                    <!-- Rendered by results.js -->
+                </div>
+            </section>
+
+            <!-- Settings View -->
+            <section id="view-settings" class="view view-settings">
+                <h2 style="font-size:var(--font-size-xl);margin-bottom:var(--space-4)" data-i18n="settings.title">Cài đặt</h2>
+                <div id="settings-content">
+                    <!-- Rendered by settings section in app.js -->
+                </div>
+            </section>
+        </main>
+
+        <!-- ── Bottom Navigation ── -->
+        <nav id="app-bottom-nav">
+            <div class="bottom-nav">
+                <button class="bottom-nav-item active" data-view="dashboard" id="nav-dashboard">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                        <polyline points="9 22 9 12 15 12 15 22"/>
+                    </svg>
+                    <span data-i18n="nav.dashboard">Trang chủ</span>
+                </button>
+
+                <button class="bottom-nav-item" data-view="designer" id="nav-designer">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                        <polyline points="10 9 9 9 8 9"/>
+                    </svg>
+                    <span data-i18n="nav.designer">Phiếu</span>
+                </button>
+
+                <button class="bottom-nav-item scan-btn" data-view="scanner" id="nav-scanner">
+                    <div class="scan-btn-circle">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                            <circle cx="12" cy="13" r="4"/>
+                        </svg>
+                    </div>
+                    <span data-i18n="nav.scan">Quét</span>
+                </button>
+
+                <button class="bottom-nav-item" data-view="results" id="nav-results">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="20" x2="18" y2="10"/>
+                        <line x1="12" y1="20" x2="12" y2="4"/>
+                        <line x1="6" y1="20" x2="6" y2="14"/>
+                    </svg>
+                    <span data-i18n="nav.results">Kết quả</span>
+                </button>
+
+                <button class="bottom-nav-item" data-view="settings" id="nav-settings">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                    <span data-i18n="nav.settings">Cài đặt</span>
+                </button>
+            </div>
+        </nav>
+    </div>
+
+    <!-- ══════════════════════════════════════════
+         TOAST CONTAINER
+         ══════════════════════════════════════════ -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- ══════════════════════════════════════════
+         LOADING OVERLAY (Global)
+         ══════════════════════════════════════════ -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text" id="loading-text" data-i18n="misc.loading">Đang tải...</div>
+    </div>
+
+    <!-- ══════════════════════════════════════════
+         MODAL (Reusable)
+         ══════════════════════════════════════════ -->
+    <div id="modal-backdrop" class="modal-backdrop"></div>
+    <div id="modal" class="modal">
+        <div class="modal-handle"></div>
+        <div class="modal-header">
+            <h3 class="modal-title" id="modal-title"></h3>
+            <button class="btn-icon btn-ghost btn-sm" id="modal-close-btn" aria-label="Close">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+        </div>
+        <div class="modal-body" id="modal-body"></div>
+        <div class="modal-footer" id="modal-footer"></div>
+    </div>
+
+    <!-- ══════════════════════════════════════════
+         PWA INSTALL BANNER
+         ══════════════════════════════════════════ -->
+    <div id="install-banner" class="install-banner">
+        <div class="install-banner-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+        </div>
+        <div class="install-banner-text">
+            <div class="install-banner-title" data-i18n="settings.install_app">Cài đặt ứng dụng</div>
+            <div class="install-banner-desc" data-i18n="settings.install_app_desc">Thêm vào màn hình chính</div>
+        </div>
+        <button class="btn btn-sm btn-primary" id="btn-install">
+            <span data-i18n="settings.install_app">Cài đặt</span>
+        </button>
+        <button class="btn-icon btn-ghost btn-sm" id="btn-install-dismiss" aria-label="Dismiss">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+        </button>
+    </div>
+
+    <!-- ══════════════════════════════════════════
+         SCRIPTS
+         ══════════════════════════════════════════ -->
+    <!-- i18n must load first -->
+    <script src="js/modules/i18n.js?v=3"></script>
+    <!-- Utilities -->
+    <script src="js/utils/constants.js?v=3"></script>
+    <script src="js/utils/ui-helpers.js?v=3"></script>
+    <script src="js/utils/math-utils.js?v=3"></script>
+    <script src="js/utils/image-utils.js?v=3"></script>
+    <script src="js/utils/extensibility.js?v=3"></script>
+    <!-- Database -->
+    <script src="js/db.js?v=3"></script>
+    <!-- Modules -->
+    <script src="js/modules/project-manager.js?v=3"></script>
+    <script src="js/modules/sheet-designer.js?v=3"></script>
+    <script src="js/modules/sheet-renderer.js?v=3"></script>
+    <script src="js/modules/answer-key.js?v=3"></script>
+    <script src="js/modules/scanner.js?v=3"></script>
+    <script src="js/modules/omr-engine.js?v=3"></script>
+    <script src="js/modules/results.js?v=3"></script>
+    <script src="js/modules/excel-export.js?v=3"></script>
+    <!-- Main App (must be last) -->
+    <script src="js/app.js?v=3"></script>
+</body>
+</html>
