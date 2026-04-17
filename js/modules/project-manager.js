@@ -50,31 +50,43 @@ const ProjectManager = (() => {
                             value="${isEdit ? existingProject.pointPerQuestion : 0.25}">
                     </div>
                     <div class="form-group">
-                        <label class="form-label" data-i18n="project.total_points">${I18n.t('project.total_points')}</label>
+                        <label class="form-label" data-i18n="project.total_points">${I18n.t('project.total_points') || 'Tổng điểm'}</label>
                         <input type="number" class="form-input" id="input-project-total-points" 
-                            value="${isEdit ? existingProject.totalPoints : 10}" readonly
-                            style="opacity:0.7">
+                            step="0.01" min="0.1" value="${isEdit ? existingProject.totalPoints : 10}">
                     </div>
                 </div>
             </div>
         `;
 
-        // Wire up auto-calculate total points (must be before await)
+        // Wire up auto-calculate logic bidirectionally
         setTimeout(() => {
             const qInput = document.getElementById('input-project-questions');
             const ppqInput = document.getElementById('input-project-ppq');
             const totalInput = document.getElementById('input-project-total-points');
 
-            function recalc() {
+            function recalcTotal() {
                 if (qInput && ppqInput && totalInput) {
                     const q = parseInt(qInput.value) || 0;
                     const ppq = parseFloat(ppqInput.value) || 0;
-                    totalInput.value = (q * ppq).toFixed(2);
+                    if (q > 0) {
+                        totalInput.value = (q * ppq).toFixed(2);
+                    }
                 }
             }
 
-            if (qInput) qInput.addEventListener('input', recalc);
-            if (ppqInput) ppqInput.addEventListener('input', recalc);
+            function recalcPPQ() {
+                if (qInput && ppqInput && totalInput) {
+                    const q = parseInt(qInput.value) || 0;
+                    const total = parseFloat(totalInput.value) || 0;
+                    if (q > 0) {
+                        ppqInput.value = (total / q).toFixed(3);
+                    }
+                }
+            }
+
+            if (qInput) qInput.addEventListener('input', recalcTotal);
+            if (ppqInput) ppqInput.addEventListener('input', recalcTotal);
+            if (totalInput) totalInput.addEventListener('input', recalcPPQ);
         }, 100);
 
         const result = await UIHelpers.showModal({
@@ -97,6 +109,7 @@ const ProjectManager = (() => {
         const totalQuestions = parseInt(document.getElementById('input-project-questions')?.value) || CONSTANTS.DEFAULT_QUESTIONS;
         const optionCount = parseInt(document.getElementById('select-project-options')?.value) || CONSTANTS.DEFAULT_OPTIONS;
         const pointPerQuestion = parseFloat(document.getElementById('input-project-ppq')?.value) || 0.25;
+        const totalPoints = parseFloat(document.getElementById('input-project-total-points')?.value) || parseFloat((totalQuestions * pointPerQuestion).toFixed(2));
 
         if (!name) {
             UIHelpers.showToast(I18n.t('project.name') + '!', 'warning');
@@ -111,7 +124,7 @@ const ProjectManager = (() => {
             totalQuestions: MathUtils.clamp(totalQuestions, CONSTANTS.MIN_QUESTIONS, CONSTANTS.MAX_QUESTIONS),
             optionCount: MathUtils.clamp(optionCount, CONSTANTS.MIN_OPTIONS, CONSTANTS.MAX_OPTIONS),
             pointPerQuestion,
-            totalPoints: parseFloat((totalQuestions * pointPerQuestion).toFixed(2)),
+            totalPoints,
             templateId: null,
             status: CONSTANTS.PROJECT_STATUS.ACTIVE,
             // Extensibility fields (R5.4)

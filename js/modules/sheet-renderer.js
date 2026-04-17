@@ -108,9 +108,13 @@ const SheetRenderer = (() => {
         }
 
         // ── 3. Student ID Section ──
-        const sidStartX = contentStartX;
-        const sidStartY = currentY;
         const sidDigits = config.studentIdDigits || C.STUDENT_ID_DIGITS;
+        const ecDigits = config.hasExamCodeSection !== false ? (config.examCodeDigits || C.EXAM_CODE_DIGITS) : 0;
+        
+        const usableW_MM = C.A4_WIDTH_MM - 2 * C.SAFE_MARGIN_MM - 2 * C.MARKER_SIZE_MM;
+        const totalIdBlockWidth_MM = (sidDigits * C.BUBBLE_SPACING_X_MM) + (ecDigits > 0 ? 25 + ecDigits * C.BUBBLE_SPACING_X_MM : 0);
+        const sidStartX = margin + markerS + s(Math.max(0, (usableW_MM - totalIdBlockWidth_MM) / 2));
+        const sidStartY = currentY + s(5);
 
         drawBubbleGrid(ctx, {
             label: 'SBD',
@@ -125,8 +129,7 @@ const SheetRenderer = (() => {
 
         // ── 4. Exam Code Section (R1.2 - manual) ──
         if (config.hasExamCodeSection !== false) {
-            const ecDigits = config.examCodeDigits || C.EXAM_CODE_DIGITS;
-            const ecStartX = sidStartX + (sidDigits * s(C.BUBBLE_SPACING_X_MM)) + s(20);
+            const ecStartX = sidStartX + (sidDigits * s(C.BUBBLE_SPACING_X_MM)) + s(25);
 
             drawBubbleGrid(ctx, {
                 label: I18n.getLang() === 'vi' ? 'Mã đề' : 'Code',
@@ -169,7 +172,7 @@ const SheetRenderer = (() => {
         }
 
         // ── 6. Questions Grid ──
-        const questionsStartY = separatorY + s(8);
+        const questionsStartY = separatorY + s(12);
         const questionsPerCol = Math.ceil(config.questionCount / config.columns);
         const colWidth = (canvas.width - 2 * margin - 2 * markerS) / config.columns;
 
@@ -361,9 +364,13 @@ const SheetRenderer = (() => {
         }
 
         // ── 3. Student ID ──
+        const usableW = pageW - 2 * m - 2 * ms;
         const sidDigits = config.studentIdDigits || C.STUDENT_ID_DIGITS;
-        const sidStartX = contentStartX;
-        const sidStartY = currentY + 5;
+        const ecDigits = config.hasExamCodeSection !== false ? (config.examCodeDigits || C.EXAM_CODE_DIGITS) : 0;
+        
+        const totalIdBlockWidth_MM = (sidDigits * C.BUBBLE_SPACING_X_MM) + (ecDigits > 0 ? 25 + ecDigits * C.BUBBLE_SPACING_X_MM : 0);
+        const sidStartX = m + ms + Math.max(0, (usableW - totalIdBlockWidth_MM) / 2);
+        const sidStartY = currentY + 10;
 
         doc.setFontSize(10);
         doc.setFont(undefined, 'bold');
@@ -384,8 +391,7 @@ const SheetRenderer = (() => {
 
         // ── 4. Exam Code ──
         if (config.hasExamCodeSection !== false) {
-            const ecDigits = config.examCodeDigits || C.EXAM_CODE_DIGITS;
-            const ecStartX = sidStartX + (sidDigits * C.BUBBLE_SPACING_X_MM) + 20;
+            const ecStartX = sidStartX + (sidDigits * C.BUBBLE_SPACING_X_MM) + 25;
 
             doc.setFontSize(10);
             doc.setFont(undefined, 'bold');
@@ -404,14 +410,14 @@ const SheetRenderer = (() => {
         }
 
         // ── 5. Separator ──
-        const sepY = sidStartY + (10 * C.BUBBLE_SPACING_Y_MM) + 5;
+        const sepY = sidStartY + (10 * C.BUBBLE_SPACING_Y_MM) + 8;
         doc.setDrawColor(150);
         doc.setLineDashPattern([2, 2], 0);
         doc.line(m + ms, sepY, pageW - m - ms, sepY);
         doc.setLineDashPattern([], 0);
 
         // ── 6. Questions ──
-        const qStartY = sepY + 6;
+        const qStartY = sepY + 10;
         const questionsPerCol = Math.ceil(config.questionCount / config.columns);
         const usableW = pageW - 2 * m - 2 * ms;
         const colW = usableW / config.columns;
