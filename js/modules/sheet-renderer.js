@@ -431,7 +431,6 @@ const SheetRenderer = (() => {
         // ── 6. Questions ──
         const qStartY = sepY + 10;
         const questionsPerCol = Math.ceil(config.questionCount / config.columns);
-        const usableW = pageW - 2 * m - 2 * ms;
         const colW = usableW / config.columns;
         
         const availableH = pageH - qStartY - m - ms - 5;
