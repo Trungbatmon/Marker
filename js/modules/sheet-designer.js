@@ -266,7 +266,12 @@ const SheetDesigner = (() => {
 
         // Render using SheetRenderer
         if (typeof SheetRenderer !== 'undefined') {
-            SheetRenderer.renderToCanvas(canvas, config, scale);
+            try {
+                SheetRenderer.renderToCanvas(canvas, config, scale);
+            } catch (e) {
+                console.error("Canvas Render Error:", e);
+                UIHelpers.showToast("Lỗi vẽ phiếu: " + e.message, "error");
+            }
         }
     }
 

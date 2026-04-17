@@ -112,8 +112,14 @@ const SheetRenderer = (() => {
         const ecDigits = config.hasExamCodeSection !== false ? (config.examCodeDigits || C.EXAM_CODE_DIGITS) : 0;
         
         const usableW_MM = C.A4_WIDTH_MM - 2 * C.SAFE_MARGIN_MM - 2 * C.MARKER_SIZE_MM;
-        const totalIdBlockWidth_MM = (sidDigits * C.BUBBLE_SPACING_X_MM) + (ecDigits > 0 ? 25 + ecDigits * C.BUBBLE_SPACING_X_MM : 0);
-        const sidStartX = margin + markerS + s(Math.max(0, (usableW_MM - totalIdBlockWidth_MM) / 2));
+        const safeEcDigits = isNaN(ecDigits) ? 0 : ecDigits;
+        const safeSidDigits = isNaN(sidDigits) ? C.STUDENT_ID_DIGITS : sidDigits;
+        const totalIdBlockWidth_MM = (safeSidDigits * C.BUBBLE_SPACING_X_MM) + (safeEcDigits > 0 ? 25 + safeEcDigits * C.BUBBLE_SPACING_X_MM : 0);
+        
+        let startXOffset = (usableW_MM - totalIdBlockWidth_MM) / 2;
+        if (isNaN(startXOffset) || startXOffset < 0) startXOffset = 0;
+        
+        const sidStartX = margin + markerS + s(startXOffset);
         const sidStartY = currentY + s(5);
 
         drawBubbleGrid(ctx, {
@@ -368,8 +374,14 @@ const SheetRenderer = (() => {
         const sidDigits = config.studentIdDigits || C.STUDENT_ID_DIGITS;
         const ecDigits = config.hasExamCodeSection !== false ? (config.examCodeDigits || C.EXAM_CODE_DIGITS) : 0;
         
-        const totalIdBlockWidth_MM = (sidDigits * C.BUBBLE_SPACING_X_MM) + (ecDigits > 0 ? 25 + ecDigits * C.BUBBLE_SPACING_X_MM : 0);
-        const sidStartX = m + ms + Math.max(0, (usableW - totalIdBlockWidth_MM) / 2);
+        const safeEcDigits = isNaN(ecDigits) ? 0 : ecDigits;
+        const safeSidDigits = isNaN(sidDigits) ? C.STUDENT_ID_DIGITS : sidDigits;
+        const totalIdBlockWidth_MM = (safeSidDigits * C.BUBBLE_SPACING_X_MM) + (safeEcDigits > 0 ? 25 + safeEcDigits * C.BUBBLE_SPACING_X_MM : 0);
+        
+        let startXOffset = (usableW - totalIdBlockWidth_MM) / 2;
+        if (isNaN(startXOffset) || startXOffset < 0) startXOffset = 0;
+        
+        const sidStartX = m + ms + startXOffset;
         const sidStartY = currentY + 10;
 
         doc.setFontSize(10);
