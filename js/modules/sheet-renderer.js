@@ -173,6 +173,12 @@ const SheetRenderer = (() => {
         const questionsPerCol = Math.ceil(config.questionCount / config.columns);
         const colWidth = (canvas.width - 2 * margin - 2 * markerS) / config.columns;
 
+        const availableH = canvas.height - questionsStartY - margin - markerS - s(5);
+        let spacingY = s(C.BUBBLE_SPACING_Y_MM);
+        if (questionsPerCol * spacingY > availableH) {
+            spacingY = availableH / questionsPerCol;
+        }
+
         for (let col = 0; col < config.columns; col++) {
             const colStartX = margin + markerS + s(C.MARKER_TO_CONTENT_MM) + (col * colWidth);
 
@@ -180,7 +186,7 @@ const SheetRenderer = (() => {
                 const qNum = col * questionsPerCol + row + 1;
                 if (qNum > config.questionCount) break;
 
-                const y = questionsStartY + (row * s(C.BUBBLE_SPACING_Y_MM));
+                const y = questionsStartY + (row * spacingY);
 
                 // Timing mark (R1.6) — only for first column
                 if (col === 0) {
@@ -409,6 +415,12 @@ const SheetRenderer = (() => {
         const questionsPerCol = Math.ceil(config.questionCount / config.columns);
         const usableW = pageW - 2 * m - 2 * ms;
         const colW = usableW / config.columns;
+        
+        const availableH = pageH - qStartY - m - ms - 5;
+        let spacingY = C.BUBBLE_SPACING_Y_MM;
+        if (questionsPerCol * spacingY > availableH) {
+            spacingY = availableH / questionsPerCol;
+        }
 
         doc.setDrawColor(50);
         doc.setFontSize(8);
@@ -420,19 +432,7 @@ const SheetRenderer = (() => {
                 const qNum = col * questionsPerCol + row + 1;
                 if (qNum > config.questionCount) break;
 
-                const y = qStartY + (row * C.BUBBLE_SPACING_Y_MM);
-
-                // Check if we need a new page
-                if (y > pageH - m - ms - 5) {
-                    doc.addPage();
-                    // Re-draw markers on new page
-                    doc.setFillColor(0, 0, 0);
-                    doc.rect(m, m, ms, ms, 'F');
-                    doc.rect(pageW - m - ms, m, ms, ms, 'F');
-                    doc.rect(m, pageH - m - ms, ms, ms, 'F');
-                    doc.rect(pageW - m - ms, pageH - m - ms, ms, ms, 'F');
-                    break; // Simplified: handle overflow later
-                }
+                const y = qStartY + (row * spacingY);
 
                 // Timing mark (first column only)
                 if (col === 0) {

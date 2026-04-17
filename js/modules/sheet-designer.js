@@ -272,8 +272,34 @@ const SheetDesigner = (() => {
 
     async function handleDownloadPDF() {
         const config = getConfig();
+        const canvas = document.getElementById('sheet-preview-canvas');
+        if (!canvas) return;
+
+        const imgData = canvas.toDataURL('image/jpeg', 0.9);
+        const isVi = I18n.getLang() === 'vi';
+        
+        const content = `
+            <div style="text-align:center;max-height:55vh;overflow-y:auto;border:1px solid var(--color-border);border-radius:var(--radius-md)">
+                <img src="${imgData}" style="width:100%;height:auto;display:block">
+            </div>
+            <div style="margin-top:var(--space-3);font-size:var(--font-size-sm);color:var(--color-text-secondary);text-align:center">
+                ${isVi ? 'Vui lòng kiểm tra lại bố cục. Hệ thống đã tự động co giãn để phiếu nằm gọn trong 1 trang A4.' : 'Please double check the layout.'}
+            </div>
+        `;
+
+        const action = await UIHelpers.showModal({
+            title: isVi ? 'Xem trước Phiếu trả lời' : 'Preview Answer Sheet',
+            content,
+            actions: [
+                { label: I18n.t('action.cancel') || 'Huỷ', className: 'btn-secondary', value: 'cancel' },
+                { label: I18n.t('designer.download_pdf') || 'Tải xuống PDF', className: 'btn-primary', value: 'download' }
+            ]
+        });
+
+        if (action !== 'download') return;
+
         try {
-            UIHelpers.showLoading(I18n.t('designer.download_pdf') + '...');
+            UIHelpers.showLoading((I18n.t('designer.download_pdf') || 'Downloading') + '...');
 
             // Dynamically load jsPDF if not loaded
             if (typeof jspdf === 'undefined' && typeof jsPDF === 'undefined') {
@@ -285,7 +311,7 @@ const SheetDesigner = (() => {
             }
 
             UIHelpers.hideLoading();
-            UIHelpers.showToast(I18n.t('misc.success'), 'success');
+            UIHelpers.showToast(I18n.t('misc.success') || 'Thành công', 'success');
         } catch (error) {
             UIHelpers.hideLoading();
             UIHelpers.showToast(I18n.t('misc.error') + ': ' + error.message, 'error');
