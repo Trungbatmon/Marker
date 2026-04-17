@@ -270,8 +270,10 @@ const SheetDesigner = (() => {
                 SheetRenderer.renderToCanvas(canvas, config, scale);
             } catch (e) {
                 console.error("Canvas Render Error:", e);
-                UIHelpers.showToast("Lỗi vẽ phiếu: " + e.message, "error");
+                document.getElementById('app').innerHTML = `<div style="padding: 20px; color: red;"><h1>CÓ LỖI XẢY RA KHI VẼ</h1><pre>${e.stack || e.message}</pre></div>`;
             }
+        } else {
+            document.getElementById('app').innerHTML = `<div style="padding: 20px; color: red;"><h1>LỖI MÃ NGUỒN NGHIÊM TRỌNG</h1><p>Module SheetRenderer không tồn tại, có thể do lỗi cú pháp (Syntax Error) trong file sheet-renderer.js.</p></div>`;
         }
     }
 
