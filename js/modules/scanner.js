@@ -41,10 +41,20 @@ const Scanner = (() => {
             }
         } catch (error) {
             console.error('[Scanner] Camera error:', error);
-            UIHelpers.showToast(I18n.t('scanner.no_camera'), 'error');
-
+            
+            // Show explicit error and prompt button
+            const statusEl = document.querySelector('.scanner-status');
+            if (statusEl) {
+                statusEl.innerHTML = `
+                    <div style="color:var(--color-error);margin-bottom:8px">Lỗi truy cập Camera (${error.name || 'Unknown'})</div>
+                    <button class="btn btn-sm btn-primary" onclick="Scanner.startCamera()">Bấm vào đây để cấp quyền</button>
+                `;
+            }
+            
             if (error.name === 'NotAllowedError') {
                 UIHelpers.showToast(I18n.t('scanner.camera_permission'), 'warning', CONSTANTS.TOAST_DURATION_LONG);
+            } else {
+                UIHelpers.showToast(I18n.t('scanner.no_camera') + ': ' + error.message, 'error');
             }
         }
     }

@@ -128,18 +128,21 @@ const AnswerKeyManager = (() => {
     }
 
     function renderAnswerGrid(totalQuestions, optionCount, answers) {
-        let html = '<div class="answer-key-grid">';
+        let html = '<div class="answer-key-grid" style="display:flex;flex-direction:column;gap:var(--space-2)">';
         for (let i = 1; i <= totalQuestions; i++) {
             const value = answers[i] || '';
             html += `
-                <div class="answer-key-cell">
-                    <span class="cell-number">${i}</span>
-                    <input type="text" class="cell-input ${value ? 'filled' : ''}" 
-                        data-question="${i}" 
-                        maxlength="1" 
-                        value="${value}"
-                        inputmode="text"
-                        autocomplete="off">
+                <div class="answer-key-cell" style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) 0;border-bottom:1px solid var(--color-bg-secondary)">
+                    <span class="cell-number" style="font-weight:600;min-width:30px;color:var(--color-text-secondary)">${i}.</span>
+                    <div style="display:flex;gap:var(--space-2);flex-wrap:wrap">
+                        ${['A','B','C','D','E'].slice(0, optionCount).map(opt => `
+                            <button class="chip ${value === opt ? 'active' : ''}" 
+                                style="width:36px;height:36px;padding:0;border-radius:50%;display:flex;align-items:center;justify-content:center"
+                                data-q="${i}" data-v="${opt}">
+                                ${opt}
+                            </button>
+                        `).join('')}
+                    </div>
                 </div>
             `;
         }
@@ -148,35 +151,22 @@ const AnswerKeyManager = (() => {
     }
 
     function bindAnswerKeyEvents(project) {
-        // Answer grid auto-advance
-        document.querySelectorAll('.cell-input').forEach((input, idx, inputs) => {
-            input.addEventListener('input', (e) => {
-                const val = e.target.value.toUpperCase();
-                const validOptions = CONSTANTS.OPTION_LABELS.slice(0, project.optionCount);
+        // Bubble group auto-advance
+        document.querySelectorAll('.chip[data-q]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const q = btn.dataset.q;
+                const val = btn.dataset.v;
+                const isActive = btn.classList.contains('active');
 
-                if (val && validOptions.includes(val)) {
-                    e.target.value = val;
-                    e.target.classList.add('filled');
-                    // Auto-advance to next input
-                    if (idx < inputs.length - 1) {
-                        inputs[idx + 1].focus();
-                        inputs[idx + 1].select();
-                    }
-                } else if (val) {
-                    e.target.value = '';
-                    e.target.classList.remove('filled');
+                // Clear other bubbles in same question
+                document.querySelectorAll(`.chip[data-q="${q}"]`).forEach(b => b.classList.remove('active'));
+                
+                if (!isActive) {
+                    btn.classList.add('active');
                 }
+
                 updateStatus(project.totalQuestions);
             });
-
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Backspace' && !e.target.value && idx > 0) {
-                    inputs[idx - 1].focus();
-                    inputs[idx - 1].select();
-                }
-            });
-
-            input.addEventListener('focus', () => input.select());
         });
 
         // Input method tabs
@@ -198,10 +188,11 @@ const AnswerKeyManager = (() => {
             const validOptions = CONSTANTS.OPTION_LABELS.slice(0, project.optionCount);
             const answers = text.split('').filter(c => validOptions.includes(c));
 
-            document.querySelectorAll('.cell-input').forEach((input, i) => {
-                if (i < answers.length) {
-                    input.value = answers[i];
-                    input.classList.add('filled');
+            document.querySelectorAll('.chip[data-q]').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.chip[data-q]').forEach(btn => {
+                const q = parseInt(btn.dataset.q);
+                if (q <= answers.length && btn.dataset.v === answers[q - 1]) {
+                    btn.classList.add('active');
                 }
             });
 
@@ -271,13 +262,15 @@ const AnswerKeyManager = (() => {
             return;
         }
 
-        const answers = {};
-        document.querySelectorAll('.cell-input').forEach(input => {
-            const q = parseInt(input.dataset.question);
-            const v = input.value.toUpperCase().trim();
-            if (v) answers[q] = v;
-        });
+        function getAnswers() {
+            const answers = {};
+            document.querySelectorAll('.chip.active[data-q]').forEach(btn => {
+                answers[btn.dataset.q] = btn.dataset.v;
+            });
+            return answers;
+        }
 
+        const answers = getAnswers();
         const existingId = document.getElementById('btn-save-answer-key')?.dataset?.akId;
 
         const answerKey = {
