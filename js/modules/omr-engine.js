@@ -454,9 +454,22 @@ const OMREngine = (() => {
         const widthBottom = MathUtils.distance(bl, br);
         const maxWidth = Math.round(Math.max(widthTop, widthBottom));
 
-        const heightLeft = MathUtils.distance(tl, bl);
-        const heightRight = MathUtils.distance(tr, br);
-        const maxHeight = Math.round(Math.max(heightLeft, heightRight));
+        // CRITICAL FIX: Force proper aspect ratio scaling based on A4 template!
+        // The distance between TL and TR markers horizontally is spanX (178mm)
+        // The distance between TL and BL markers vertically is spanY (265mm)
+        const m = CONSTANTS.SAFE_MARGIN_MM;
+        const ms = CONSTANTS.MARKER_SIZE_MM;
+        const originX = m + ms / 2;
+        const originY = m + ms / 2;
+        const spanX = CONSTANTS.A4_WIDTH_MM - 2 * originX;
+        const spanY = CONSTANTS.A4_HEIGHT_MM - 2 * originY;
+        
+        // Target aspect ratio of the marker bounding box
+        const targetAspectRatio = spanX / spanY;
+        
+        // Instead of relying on pixel height (which suffers from foreshortening when camera is tilted)
+        // We force the mathematical height required by the known physical width
+        const maxHeight = Math.round(maxWidth / targetAspectRatio);
 
         // Source points
         const srcPts = cv.matFromArray(4, 1, cv.CV_32FC2, [

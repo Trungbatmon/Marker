@@ -64,18 +64,18 @@ const VisionScanner = (() => {
         const sbdDigits = config.studentIdDigits || CONSTANTS.STUDENT_ID_DIGITS;
         const codeDigits = config.examCodeDigits || CONSTANTS.EXAM_CODE_DIGITS;
 
-        // ~400 tokens — well under any context limit
-        return `Read this answer sheet image. Extract ONLY raw data.
+        return `You are an expert OMR Scanner API. Read this answer sheet.
+Sheet config: ${qCount} questions, options ${optLabels}, SBD ${sbdDigits} digits, Code ${codeDigits} digits.
 
-Sheet: ${qCount} questions, options ${optLabels}, SBD ${sbdDigits} digits, Code ${codeDigits} digits.
-Bubbled/filled circles = marked. Empty circles = unmarked.
+RULES:
+1. SBD/Code: The grid has columns (digits). Top row is 0, bottom is 9. Find the dark filled circle in each column to form the string.
+2. Answers: Read question by question (1 to ${qCount}). They are usually organized in vertical columns. Do not skip any question number.
+3. Bubble evaluation:
+   - One dark filled circle = the letter (e.g., "A").
+   - Light marks or empty = "BLANK".
+   - Multiple dark marks = "MULTI".
 
-Rules:
-- SBD: read each column top-to-bottom, darkened row = that digit
-- Code: same as SBD
-- Answers: ONE filled = letter, NONE = "BLANK", MULTIPLE = "MULTI"
-
-Return ONLY JSON:
+Read carefully. Return ONLY raw JSON without markdown formatting:
 {"studentId":"${"x".repeat(sbdDigits)}","examCode":"${"x".repeat(codeDigits)}","answers":{"1":"A","2":"BLANK",...,"${qCount}":"C"},"confidence":0.95}`;
     }
 
@@ -258,11 +258,11 @@ Return ONLY JSON:
         const optLabels = CONSTANTS.OPTION_LABELS.slice(0, config.optionCount || 4).join(',');
 
         // Different phrasing to get independent read
-        return `Carefully examine this scanned answer sheet photo. 
-Extract the student number and exam code from the grid at top.
-For questions 1-${qCount} (options: ${optLabels}), report which bubble is filled.
-Filled=dark circle. Empty=light circle. One filled=letter. None=BLANK. Multiple=MULTI.
-Reply JSON only: {"studentId":"...","examCode":"...","answers":{"1":"A",...},"confidence":0.9}`;
+        return `Please do a strict validation read of this OMR answer sheet photo.
+Look closely at questions 1 to ${qCount} (valid bubbles: ${optLabels}). Follow the columns sequentially.
+For SBD and Code grids at the top, read each column index carefully (0-9).
+A dark closed circle is a filled bubble. Report the matched letter. If empty, report "BLANK". If >1 bubble is filled, report "MULTI".
+Output JSON only (no markdown): {"studentId":"...","examCode":"...","answers":{"1":"A",...},"confidence":0.9}`;
     }
 
     async function doubleRead(base64Image, config) {
