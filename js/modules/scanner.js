@@ -495,6 +495,28 @@ const Scanner = (() => {
             : '--';
 
         const answersObj = result.answers || {};
+        
+        // Normalize details for table rendering (OMR returns object, Vision returns array)
+        const detailsArray = Array.isArray(result.details) 
+            ? result.details 
+            : Object.keys(answersObj).map(qStr => {
+                const q = parseInt(qStr);
+                const selected = answersObj[qStr];
+                const correct = answerKey?.answers?.[q] || '?';
+                let status = 'unknown';
+                if (selected === 'BLANK' || selected === CONSTANTS.ANSWER_STATUS.BLANK) status = 'blank';
+                else if (selected === 'MULTI' || selected === CONSTANTS.ANSWER_STATUS.MULTI) status = 'multi';
+                else if (correct !== '?' && selected === correct) status = 'correct';
+                else if (correct !== '?') status = 'wrong';
+                
+                return {
+                    question: q,
+                    selected: (selected === CONSTANTS.ANSWER_STATUS.BLANK || selected === 'BLANK') ? 'BLANK' : (selected === CONSTANTS.ANSWER_STATUS.MULTI || selected === 'MULTI') ? 'MULTI' : selected,
+                    status: status,
+                    confidence: result.details?.[q]?.confidence || 0
+                };
+            }).sort((a, b) => a.question - b.question);
+
         const blanks = Object.keys(answersObj)
             .filter(q => answersObj[q] === 'BLANK' || answersObj[q] === CONSTANTS.ANSWER_STATUS?.BLANK)
             .map(q => parseInt(q)).sort((a,b)=>a-b);
@@ -573,7 +595,7 @@ const Scanner = (() => {
                 </div>
             ` : ''}
 
-            ${result.details && result.details.length > 0 ? `
+            ${detailsArray && detailsArray.length > 0 ? `
                 <div style="margin-top:var(--space-4); margin-bottom:var(--space-2); max-height: 250px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
                     <table class="table" style="font-size: var(--font-size-xs); margin: 0; width: 100%; text-align: center; border-collapse: collapse;">
                         <thead style="position: sticky; top: 0; background: var(--color-bg-secondary); z-index: 1;">
@@ -586,7 +608,7 @@ const Scanner = (() => {
                             </tr>
                         </thead>
                         <tbody>
-                            ${result.details.map(d => {
+                            ${detailsArray.map(d => {
                                 const correctAns = answerKey?.answers?.[d.question] || '?';
                                 let statusLabel = '--';
                                 let rowBg = '';
@@ -596,13 +618,19 @@ const Scanner = (() => {
                                 else if (d.status === 'multi') { statusLabel = '⚠'; rowBg = 'background:rgba(245,158,11,0.06)'; }
                                 
                                 const conf = d.confidence ? Math.round(d.confidence * 100) + '%' : '--';
-                                return \`<tr style="\${rowBg}; border-bottom: 1px solid var(--color-border);">
-                                    <td style="padding:var(--space-2)">\${d.question}</td>
-                                    <td style="padding:var(--space-2)"><strong style="color:var(--color-primary)">\${d.selected}</strong></td>
-                                    <td style="padding:var(--space-2)">\${correctAns}</td>
-                                    <td style="padding:var(--space-2); font-weight:bold; color: \${d.status==='correct'?'var(--color-success)':'var(--color-error)'}">\${statusLabel}</td>
-                                    \${result.method === 'vision' ? \`<td style="padding:var(--space-2)"><span style="color:\${d.confidence < 0.8 ? 'var(--color-warning)' : 'inherit'}">\${conf}</span></td>\` : ''}
-                                </tr>\`;
+                                const colorConf = d.confidence < 0.8 ? 'var(--color-warning)' : 'inherit';
+                                const colorStatus = d.status === 'correct' ? 'var(--color-success)' : 'var(--color-error)';
+                                
+                                let str = '<tr style="' + rowBg + '; border-bottom: 1px solid var(--color-border);">';
+                                str += '<td style="padding:var(--space-2)">' + d.question + '</td>';
+                                str += '<td style="padding:var(--space-2)"><strong style="color:var(--color-primary)">' + d.selected + '</strong></td>';
+                                str += '<td style="padding:var(--space-2)">' + correctAns + '</td>';
+                                str += '<td style="padding:var(--space-2); font-weight:bold; color: ' + colorStatus + '">' + statusLabel + '</td>';
+                                if (result.method === 'vision') {
+                                    str += '<td style="padding:var(--space-2)"><span style="color:' + colorConf + '">' + conf + '</span></td>';
+                                }
+                                str += '</tr>';
+                                return str;
                             }).join('')}
                         </tbody>
                     </table>
