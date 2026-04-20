@@ -719,9 +719,17 @@ const App = (() => {
     // ══════════════════════════════════════════
     // SERVICE WORKER
     // ══════════════════════════════════════════
-
     function registerServiceWorker() {
         if ('serviceWorker' in navigator) {
+            let refreshing = false;
+            // Listen to when the controller changes to trigger a reload
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (!refreshing) {
+                    refreshing = true;
+                    window.location.reload();
+                }
+            });
+
             navigator.serviceWorker.register('./sw.js')
                 .then(reg => {
                     console.log('[SW] Registered:', reg.scope);
@@ -729,11 +737,11 @@ const App = (() => {
                     reg.addEventListener('updatefound', () => {
                         const newWorker = reg.installing;
                         newWorker.addEventListener('statechange', () => {
-                            // If a new SW is installed and there was already one controlling the page
                             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                console.log('[SW] New version found! Reloading...');
-                                UIHelpers.showToast('Đang tải bản cập nhật mới...', 'info');
-                                setTimeout(() => window.location.reload(), 1000);
+                                console.log('[SW] New version found! Triggering skipWaiting...');
+                                UIHelpers.showToast('Đang nhận bản cập nhật Hệ Thống...', 'info');
+                                // CRITICAL: Tell the worker to activate immediately!
+                                newWorker.postMessage({ type: 'SKIP_WAITING' });
                             }
                         });
                     });
