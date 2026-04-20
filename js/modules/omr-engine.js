@@ -33,9 +33,20 @@ const OMREngine = (() => {
         try {
             const src = track(cv.matFromImageData(imageData));
             
-            // Step 1: Grayscale
+            // Step 1: Min(R,G,B) Grayscale — Preserves colored pen marks (Red, Blue) as dark pixels
             const gray = track(new cv.Mat());
-            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+            const channels = new cv.MatVector();
+            cv.split(src, channels);
+            
+            const R = channels.get(0);
+            const G = channels.get(1);
+            const B = channels.get(2);
+            
+            const minRG = track(new cv.Mat());
+            cv.min(R, G, minRG);
+            cv.min(minRG, B, gray);
+            
+            R.delete(); G.delete(); B.delete(); channels.delete();
 
             // Step 2: Gaussian Blur
             const blurred = track(new cv.Mat());
