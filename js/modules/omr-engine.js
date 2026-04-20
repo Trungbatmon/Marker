@@ -610,8 +610,13 @@ const OMREngine = (() => {
         
         // Bilinear interpolation mapper
         return (a4x, a4y) => {
-            const u = (boxMm.right - boxMm.left === 0) ? 0 : (a4x - boxMm.left) / (boxMm.right - boxMm.left);
-            const v = (boxMm.bottom - boxMm.top === 0) ? 0 : (a4y - boxMm.top) / (boxMm.bottom - boxMm.top);
+            const centerLeft = boxMm.left + smH;
+            const centerRight = boxMm.right - smH;
+            const centerTop = boxMm.top + smH;
+            const centerBottom = boxMm.bottom - smH;
+
+            const u = (centerRight - centerLeft === 0) ? 0 : (a4x - centerLeft) / (centerRight - centerLeft);
+            const v = (centerBottom - centerTop === 0) ? 0 : (a4y - centerTop) / (centerBottom - centerTop);
             
             const topX = actualPts[0].x + u * (actualPts[1].x - actualPts[0].x);
             const botX = actualPts[3].x + u * (actualPts[2].x - actualPts[3].x);
