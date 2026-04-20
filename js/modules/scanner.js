@@ -573,6 +573,42 @@ const Scanner = (() => {
                 </div>
             ` : ''}
 
+            ${result.details && result.details.length > 0 ? `
+                <div style="margin-top:var(--space-4); margin-bottom:var(--space-2); max-height: 250px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+                    <table class="table" style="font-size: var(--font-size-xs); margin: 0; width: 100%; text-align: center; border-collapse: collapse;">
+                        <thead style="position: sticky; top: 0; background: var(--color-bg-secondary); z-index: 1;">
+                            <tr>
+                                <th style="padding:var(--space-2)">Câu</th>
+                                <th style="padding:var(--space-2)">Chọn</th>
+                                <th style="padding:var(--space-2)">Đ.Án</th>
+                                <th style="padding:var(--space-2)">KQ</th>
+                                ${result.method === 'vision' ? '<th style="padding:var(--space-2)">Tin cậy</th>' : ''}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${result.details.map(d => {
+                                const correctAns = answerKey?.answers?.[d.question] || '?';
+                                let statusLabel = '--';
+                                let rowBg = '';
+                                if (d.status === 'correct') { statusLabel = '✓'; rowBg = 'background:rgba(16,185,129,0.06)'; }
+                                else if (d.status === 'wrong') { statusLabel = '✗'; rowBg = 'background:rgba(239,68,68,0.06)'; }
+                                else if (d.status === 'blank') { statusLabel = '—'; }
+                                else if (d.status === 'multi') { statusLabel = '⚠'; rowBg = 'background:rgba(245,158,11,0.06)'; }
+                                
+                                const conf = d.confidence ? Math.round(d.confidence * 100) + '%' : '--';
+                                return \`<tr style="\${rowBg}; border-bottom: 1px solid var(--color-border);">
+                                    <td style="padding:var(--space-2)">\${d.question}</td>
+                                    <td style="padding:var(--space-2)"><strong style="color:var(--color-primary)">\${d.selected}</strong></td>
+                                    <td style="padding:var(--space-2)">\${correctAns}</td>
+                                    <td style="padding:var(--space-2); font-weight:bold; color: \${d.status==='correct'?'var(--color-success)':'var(--color-error)'}">\${statusLabel}</td>
+                                    \${result.method === 'vision' ? \`<td style="padding:var(--space-2)"><span style="color:\${d.confidence < 0.8 ? 'var(--color-warning)' : 'inherit'}">\${conf}</span></td>\` : ''}
+                                </tr>\`;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : ''}
+
             ${result._inputTokens ? `
                 <div style="font-size:var(--font-size-xs);color:var(--color-text-tertiary);text-align:right;margin-top:var(--space-2)">
                     Tokens: ${result._inputTokens} in / ${result._outputTokens || 0} out
