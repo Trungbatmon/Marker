@@ -113,6 +113,8 @@ const Scanner = (() => {
                         await video.play();
                         // Log actual camera resolution
                         logCameraInfo();
+                        // Start live marker tracking
+                        startDetectionLoop();
                     } catch(e) {
                         console.warn('Auto-play blocked, waiting for user interaction');
                     }
@@ -163,13 +165,96 @@ const Scanner = (() => {
         }
     }
 
+    let _detectionLoopId = null;
+    let _isDetecting = false;
+    let _lastMarkerCount = 0;
+
     function stopCamera() {
+        stopDetectionLoop();
         if (_stream) {
             _stream.getTracks().forEach(track => track.stop());
             _stream = null;
         }
         const video = document.getElementById('scanner-video');
         if (video) video.srcObject = null;
+    }
+
+    /**
+     * Start live detection loop for markers
+     */
+    function startDetectionLoop() {
+        if (_isDetecting) return;
+        _isDetecting = true;
+        _lastMarkerCount = 0;
+        
+        const video = document.getElementById('scanner-video');
+        if (!video) return;
+
+        // Use a hidden canvas for fast downscaled capture
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        
+        // Downscale to 640px max for speed
+        const MAX_WIDTH = 640;
+
+        const loop = () => {
+            if (!_isDetecting) return;
+
+            if (video.readyState >= 2 && video.videoWidth > 0 && App.isOpenCVReady()) {
+                try {
+                    // Calculate scaled dimensions
+                    const scale = Math.min(1.0, MAX_WIDTH / video.videoWidth);
+                    canvas.width = video.videoWidth * scale;
+                    canvas.height = video.videoHeight * scale;
+
+                    // Draw video frame to canvas
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+                    // Detect markers
+                    const count = OMREngine.detectMarkersFast(imageData);
+                    updateDetectionUI(count);
+                } catch (e) {
+                    // Ignore errors in loop
+                }
+            }
+
+            // Run at ~5 fps (every 200ms) to save battery and reduce CPU heat
+            _detectionLoopId = setTimeout(() => requestAnimationFrame(loop), 200);
+        };
+
+        loop();
+    }
+
+    function stopDetectionLoop() {
+        _isDetecting = false;
+        if (_detectionLoopId) {
+            clearTimeout(_detectionLoopId);
+            _detectionLoopId = null;
+        }
+        updateDetectionUI(0);
+    }
+
+    function updateDetectionUI(count) {
+        if (count === _lastMarkerCount) return;
+        _lastMarkerCount = count;
+
+        const statusEl = document.querySelector('.scanner-status');
+        const guideEl = document.querySelector('.scanner-guide');
+        
+        if (!statusEl || !guideEl) return;
+
+        if (count >= 4) {
+            statusEl.innerHTML = `<span style="color:var(--color-success);font-weight:700">Đã nhận diện đủ (${count}/4) markers</span>`;
+            guideEl.style.borderColor = 'var(--color-success)';
+        } else if (count > 0) {
+            statusEl.innerHTML = `<span style="color:var(--color-warning)">Đang căn chỉnh... (${count}/4)</span>`;
+            guideEl.style.borderColor = 'var(--color-warning)';
+        } else {
+            // Revert to camera info
+            logCameraInfo();
+            guideEl.style.borderColor = 'rgba(255, 255, 255, 0.7)';
+        }
     }
 
     /**
@@ -215,6 +300,9 @@ const Scanner = (() => {
         showCaptureFlash();
         UIHelpers.vibrate(100);
         UIHelpers.playSound('click');
+
+        // Pause tracking while processing high-res image
+        stopDetectionLoop();
 
         if (statusEl) statusEl.textContent = 'Đang xử lý...';
 
@@ -314,15 +402,24 @@ const Scanner = (() => {
                 }
                 UIHelpers.showToast(errorMsg, 'error', CONSTANTS.TOAST_DURATION_LONG || 5000);
                 console.warn('[Scanner] OMR failed:', result);
+                
+                // Restart tracking after error
+                startDetectionLoop();
             }
         } catch (error) {
             UIHelpers.hideLoading();
             console.error('[Scanner] Capture/Process error:', error);
             UIHelpers.showToast('Lỗi xử lý ảnh: ' + (error.message || 'Unknown'), 'error', 5000);
+            
+            startDetectionLoop();
         }
 
-        // Always restore status
-        logCameraInfo();
+        // Always restore status if we restarted
+        if (_isDetecting) {
+            updateDetectionUI(_lastMarkerCount);
+        } else {
+            logCameraInfo();
+        }
     }
 
     async function showScanResult(result, imageBlob, answerKey, project) {
@@ -401,8 +498,13 @@ const Scanner = (() => {
             EventBus.emit('result:saved', { result: scanResult });
         }
 
-        // Reset status with camera info
-        logCameraInfo();
+        // Reset status and resume tracking
+        startDetectionLoop();
+        if (_isDetecting) {
+            updateDetectionUI(_lastMarkerCount);
+        } else {
+            logCameraInfo();
+        }
     }
 
     function showCaptureFlash() {

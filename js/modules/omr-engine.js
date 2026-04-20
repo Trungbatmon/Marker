@@ -585,8 +585,53 @@ const OMREngine = (() => {
         });
     }
 
+    /**
+     * Fast marker detection for live preview.
+     * Returns the number of markers found (0-4).
+     */
+    function detectMarkersFast(imageData) {
+        if (typeof cv === 'undefined') return 0;
+
+        const mats = [];
+        const track = (mat) => { mats.push(mat); return mat; };
+
+        try {
+            const src = track(cv.matFromImageData(imageData));
+            const gray = track(new cv.Mat());
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+            const blurred = track(new cv.Mat());
+            cv.GaussianBlur(gray, blurred, new cv.Size(
+                CONSTANTS.GAUSSIAN_BLUR_SIZE, 
+                CONSTANTS.GAUSSIAN_BLUR_SIZE
+            ), 0);
+
+            const thresh = track(new cv.Mat());
+            cv.adaptiveThreshold(
+                blurred, thresh, 255,
+                cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv.THRESH_BINARY_INV,
+                CONSTANTS.ADAPTIVE_THRESH_BLOCK,
+                CONSTANTS.ADAPTIVE_THRESH_C
+            );
+
+            // Suppress console.log for fast loop by patching it temporarily
+            const origLog = console.log;
+            console.log = () => {};
+            const markers = findCornerMarkers(thresh, src.cols, src.rows);
+            console.log = origLog;
+
+            return markers ? markers.length : 0;
+        } catch (e) {
+            return 0;
+        } finally {
+            mats.forEach(m => m.delete());
+        }
+    }
+
     return {
         process,
+        detectMarkersFast,
     };
 })();
 
