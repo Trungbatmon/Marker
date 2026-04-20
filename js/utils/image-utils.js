@@ -11,12 +11,13 @@ const ImageUtils = (() => {
      * @param {number} maxWidth - Max width to resize to (for performance)
      * @returns {HTMLCanvasElement}
      */
-    function captureFrame(video, maxWidth = 3840) {
+    function captureFrame(video, maxWidth = 1440) {
         const canvas = document.createElement('canvas');
         let w = video.videoWidth;
         let h = video.videoHeight;
-
-        // Scale down if too large
+        
+        // Mobile browsers often swap width/height if orientation changes. We care about processing pixel size.
+        // Scale down if too large to save AI transfer time and OMR frame processing lag
         if (w > maxWidth) {
             const scale = maxWidth / w;
             w = maxWidth;
