@@ -314,9 +314,11 @@ const Scanner = (() => {
             let blob = null;
             try { blob = await ImageUtils.canvasToBlob(canvas); } catch(e) { /* non-critical */ }
 
-            // ── Check OpenCV ──
-            if (!App.isOpenCVReady()) {
-                // Don't silently return — show a clear message
+            const scanMode = VisionScanner.getScanMode(); // 'vision' | 'omr' | 'auto'
+            const hasVisionKey = VisionScanner.hasAPIKey();
+
+            // OpenCV check only needed for OMR mode
+            if (scanMode === 'omr' && !App.isOpenCVReady()) {
                 const isVi = I18n.getLang() === 'vi';
                 UIHelpers.showToast(
                     isVi ? 'OpenCV đang tải... Vui lòng đợi 5-10 giây rồi bấm chụp lại' 
@@ -329,7 +331,11 @@ const Scanner = (() => {
                 return;
             }
 
-            UIHelpers.showLoading(I18n.t('scanner.processing') || 'Đang xử lý...');
+            UIHelpers.showLoading(
+                scanMode === 'vision' ? '🤖 Đang gửi ảnh tới AI...' 
+                : scanMode === 'auto' ? '🔍 Đang xử lý...'
+                : (I18n.t('scanner.processing') || 'Đang xử lý...')
+            );
 
             // ── Get answer key ──
             let answerKey = null;
@@ -395,13 +401,50 @@ const Scanner = (() => {
                 }
             })();
 
-            const threshold = parseFloat(localStorage.getItem(CONSTANTS.LS_KEYS.FILL_THRESHOLD)) || CONSTANTS.DEFAULT_FILL_THRESHOLD;
+            // ── Process image ──
+            let result = null;
 
-            // ── Process image with OMR ──
-            console.log('[Scanner] Starting OMR processing with config:', JSON.stringify(config));
-            const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-            const result = OMREngine.process(imageData, config, answerKey?.answers, threshold);
-            console.log('[Scanner] OMR result:', result);
+            if (scanMode === 'vision' && hasVisionKey) {
+                // Vision API only
+                console.log('[Scanner] Using Vision API (GPT-4o)');
+                result = await VisionScanner.processImage(canvas, config, answerKey?.answers);
+
+            } else if (scanMode === 'auto') {
+                // Auto: try OMR first, fallback to Vision
+                if (App.isOpenCVReady()) {
+                    console.log('[Scanner] Auto mode: trying OMR first...');
+                    const threshold = parseFloat(localStorage.getItem(CONSTANTS.LS_KEYS.FILL_THRESHOLD)) || CONSTANTS.DEFAULT_FILL_THRESHOLD;
+                    const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+                    result = OMREngine.process(imageData, config, answerKey?.answers, threshold);
+                    console.log('[Scanner] OMR result:', result);
+                }
+
+                // If OMR failed OR not available, try Vision
+                if ((!result || !result.success) && hasVisionKey) {
+                    console.log('[Scanner] OMR failed/unavailable, falling back to Vision API...');
+                    const lt = document.getElementById('loading-text');
+                    if (lt) lt.textContent = '🤖 OMR thất bại, đang thử AI...';
+                    try {
+                        result = await VisionScanner.processImage(canvas, config, answerKey?.answers);
+                    } catch (visionErr) {
+                        console.warn('[Scanner] Vision fallback also failed:', visionErr);
+                        // Keep the OMR error result
+                        if (!result) result = { success: false, error: 'both_failed', message: visionErr.message };
+                    }
+                }
+
+                if (!result) {
+                    result = { success: false, error: 'no_engine', message: 'Không có engine khả dụng' };
+                }
+
+            } else {
+                // OMR only (default)
+                console.log('[Scanner] Using OMR engine');
+                const threshold = parseFloat(localStorage.getItem(CONSTANTS.LS_KEYS.FILL_THRESHOLD)) || CONSTANTS.DEFAULT_FILL_THRESHOLD;
+                const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+                result = OMREngine.process(imageData, config, answerKey?.answers, threshold);
+                console.log('[Scanner] OMR result:', result);
+            }
 
             UIHelpers.hideLoading();
 
@@ -416,13 +459,16 @@ const Scanner = (() => {
                 if (result.error === 'no_markers') {
                     errorMsg = (I18n.t('scanner.error_no_markers') || 'Không tìm thấy marker') + 
                         ` (${result.markersFound || 0}/4). Ảnh: ${canvas.width}×${canvas.height}`;
+                    if (hasVisionKey && scanMode !== 'auto') {
+                        errorMsg += '\n💡 Thử đổi sang chế độ "AI Vision" trong Settings.';
+                    }
                 } else if (result.error === 'opencv_not_loaded') {
                     errorMsg = 'OpenCV chưa được tải. Vui lòng đợi và thử lại.';
                 } else {
                     errorMsg = (I18n.t('scanner.error_generic') || 'Lỗi xử lý') + (result.message ? `: ${result.message}` : '');
                 }
                 UIHelpers.showToast(errorMsg, 'error', CONSTANTS.TOAST_DURATION_LONG || 5000);
-                console.warn('[Scanner] OMR failed:', result);
+                console.warn('[Scanner] Scan failed:', result);
                 
                 // Restart tracking after error
                 startDetectionLoop();
@@ -486,18 +532,52 @@ const Scanner = (() => {
                 </div>
             </div>
 
-            <div style="display:flex;gap:var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-tertiary);margin-bottom:var(--space-4)">
+            <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;font-size:var(--font-size-sm);color:var(--color-text-tertiary);margin-bottom:var(--space-4)">
                 <span class="badge badge-warning">${I18n.t('results.blank')}: ${result.blankCount || 0}</span>
                 <span class="badge badge-error">${I18n.t('results.multi')}: ${result.multiCount || 0}</span>
+                <span class="badge ${result.method === 'vision' ? 'badge-info' : 'badge-success'}">${result.method === 'vision' ? '🤖 AI Vision' : '📐 OMR'}</span>
+                ${result._elapsed ? `<span class="badge" style="background:var(--color-bg-tertiary)">⏱ ${(result._elapsed / 1000).toFixed(1)}s</span>` : ''}
+                ${result.avgConfidence ? `<span class="badge" style="background:var(--color-bg-tertiary)">🎯 ${Math.round(result.avgConfidence * 100)}%</span>` : ''}
             </div>
             
             ${blanks.length > 0 ? `<div style="font-size:var(--font-size-sm);color:var(--color-warning);margin-bottom:var(--space-2);text-align:left;">
                 <strong>Câu trống:</strong> ${blanks.join(', ')}
             </div>` : ''}
             
-            ${multis.length > 0 ? `<div style="font-size:var(--font-size-sm);color:var(--color-error);margin-bottom:var(--space-4);text-align:left;">
+            ${multis.length > 0 ? `<div style="font-size:var(--font-size-sm);color:var(--color-error);margin-bottom:var(--space-2);text-align:left;">
                 <strong>Phạm quy (tô nhiều ô):</strong> ${multis.join(', ')}
             </div>` : ''}
+
+            ${result._validation && !result._validation.valid ? `
+                <div style="margin:var(--space-3) 0;padding:var(--space-3);border-radius:var(--radius-md);
+                    background:${result._validation.severity === 'error' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)'};
+                    border:1px solid ${result._validation.severity === 'error' ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)'}">
+                    <div style="font-size:var(--font-size-sm);font-weight:600;margin-bottom:var(--space-1);
+                        color:${result._validation.severity === 'error' ? 'var(--color-error)' : 'var(--color-warning)'}">
+                        ${result._validation.severity === 'error' ? '⚠ Cảnh báo nghiêm trọng' : '⚠ Lưu ý'}
+                    </div>
+                    <ul style="margin:0;padding-left:var(--space-4);font-size:var(--font-size-xs);color:var(--color-text-secondary)">
+                        ${result._validation.issues.map(i => `<li>${UIHelpers.escapeHTML(i)}</li>`).join('')}
+                    </ul>
+                </div>
+            ` : ''}
+
+            ${result._verify?.doubleRead ? `
+                <div style="margin:var(--space-2) 0;padding:var(--space-2) var(--space-3);border-radius:var(--radius-md);
+                    background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.15);font-size:var(--font-size-xs)">
+                    🔄 <strong>Double-read:</strong> 
+                    ${result._verify.discrepancies.length === 0 
+                        ? '<span style="color:var(--color-success)">✅ Hai lần đọc khớp 100%</span>' 
+                        : `<span style="color:var(--color-warning)">⚠ ${result._verify.discrepancies.length} khác biệt (${Math.round((result._verify.agreement || 0) * 100)}% khớp)</span>`
+                    }
+                </div>
+            ` : ''}
+
+            ${result._inputTokens ? `
+                <div style="font-size:var(--font-size-xs);color:var(--color-text-tertiary);text-align:right;margin-top:var(--space-2)">
+                    Tokens: ${result._inputTokens} in / ${result._outputTokens || 0} out
+                </div>
+            ` : ''}
             
             ${!project ? '<p style="text-align:center;color:var(--color-warning);font-size:var(--font-size-sm)">* <em>Không lưu kết quả do chưa chọn dự án</em></p>' : ''}
         `;
@@ -629,8 +709,15 @@ const Scanner = (() => {
     async function processBatch(files) {
         if (!files || files.length === 0) return;
 
-        if (!App.isOpenCVReady()) {
+        const scanMode = VisionScanner.getScanMode();
+        const hasVisionKey = VisionScanner.hasAPIKey();
+
+        if (scanMode === 'omr' && !App.isOpenCVReady()) {
             UIHelpers.showToast('OpenCV chưa tải xong. Vui lòng đợi...', 'warning', 5000);
+            return;
+        }
+        if (scanMode === 'vision' && !hasVisionKey) {
+            UIHelpers.showToast('Chưa cấu hình API key. Vào Settings để thêm.', 'warning', 5000);
             return;
         }
 
@@ -688,21 +775,46 @@ const Scanner = (() => {
         const batchResults = [];
         let processed = 0;
         const total = files.length;
+        const modeLabel = scanMode === 'vision' ? '🤖 AI' : scanMode === 'auto' ? '🔍 Auto' : '📐 OMR';
 
-        UIHelpers.showLoading(`Đang xử lý 0/${total}...`);
+        UIHelpers.showLoading(`${modeLabel} — 0/${total}...`);
 
         for (const file of files) {
             processed++;
             const lt = document.getElementById('loading-text');
-            if (lt) lt.textContent = `Đang xử lý ${processed}/${total}...`;
+            if (lt) lt.textContent = `${modeLabel} — ${processed}/${total}...`;
 
             try {
                 const img = await loadImageFromFile(file);
                 const canvas = ImageUtils.imageToCanvas(img);
-                const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-                console.log(`[Batch] ${processed}/${total}: ${file.name} (${canvas.width}×${canvas.height})`);
+                console.log(`[Batch] ${processed}/${total}: ${file.name} (${canvas.width}×${canvas.height}) mode=${scanMode}`);
 
-                const result = OMREngine.process(imageData, config, answerKey?.answers, threshold);
+                let result = null;
+
+                if (scanMode === 'vision' && hasVisionKey) {
+                    result = await VisionScanner.processImage(canvas, config, answerKey?.answers);
+                } else if (scanMode === 'auto') {
+                    // Try OMR first
+                    if (App.isOpenCVReady()) {
+                        const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+                        result = OMREngine.process(imageData, config, answerKey?.answers, threshold);
+                    }
+                    // Fallback to Vision
+                    if ((!result || !result.success) && hasVisionKey) {
+                        if (lt) lt.textContent = `🤖 AI fallback — ${processed}/${total}...`;
+                        try {
+                            result = await VisionScanner.processImage(canvas, config, answerKey?.answers);
+                        } catch(ve) {
+                            console.warn(`[Batch] Vision fallback failed for ${file.name}:`, ve);
+                            if (!result) result = { success: false, error: ve.message };
+                        }
+                    }
+                    if (!result) result = { success: false, error: 'no_engine' };
+                } else {
+                    // OMR only
+                    const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+                    result = OMREngine.process(imageData, config, answerKey?.answers, threshold);
+                }
 
                 if (result.success) {
                     const score = project ? ((result.correctCount || 0) * project.pointPerQuestion) : 0;
@@ -734,6 +846,7 @@ const Scanner = (() => {
 
                     batchResults.push({
                         fileName: file.name, success: true, saved: !!project,
+                        method: result.method || 'omr',
                         studentId: result.studentId || '--',
                         examCode: result.examCode || '--',
                         correctCount: result.correctCount || 0,
@@ -753,7 +866,9 @@ const Scanner = (() => {
                 batchResults.push({ fileName: file.name, success: false, error: e.message || 'unknown' });
             }
 
-            await new Promise(r => setTimeout(r, 50)); // Keep UI responsive
+            // Rate limiting for Vision API
+            const delay = scanMode === 'vision' ? 200 : 50;
+            await new Promise(r => setTimeout(r, delay));
         }
 
         UIHelpers.hideLoading();

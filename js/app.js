@@ -414,6 +414,59 @@ const App = (() => {
                 </div>
             </div>
 
+            <!-- AI Vision -->
+            <div class="settings-section">
+                <div class="settings-section-title">🤖 AI Vision (GPT-4o)</div>
+                <div class="settings-group">
+                    <div class="settings-item" id="setting-scan-mode">
+                        <div class="settings-item-left">
+                            <div class="settings-item-icon" style="background:linear-gradient(135deg,rgba(139,92,246,0.15),rgba(59,130,246,0.15));color:var(--color-primary)">🔍</div>
+                            <div>
+                                <div class="settings-item-label">Chế độ quét</div>
+                                <div class="settings-item-desc" style="font-size:var(--font-size-xs)">Chọn engine xử lý phiếu</div>
+                            </div>
+                        </div>
+                        <select class="form-select" id="select-scan-mode" style="width:auto;min-height:36px;padding:var(--space-2) var(--space-8) var(--space-2) var(--space-3)">
+                            <option value="auto" ${VisionScanner.getScanMode() === 'auto' ? 'selected' : ''}>🔄 Auto (OMR → AI)</option>
+                            <option value="vision" ${VisionScanner.getScanMode() === 'vision' ? 'selected' : ''}>🤖 AI Vision</option>
+                            <option value="omr" ${VisionScanner.getScanMode() === 'omr' ? 'selected' : ''}>📐 OMR (Offline)</option>
+                        </select>
+                    </div>
+                    <div class="settings-item" style="flex-direction:column;align-items:stretch;gap:var(--space-2)">
+                        <div class="settings-item-left" style="margin-bottom:var(--space-1)">
+                            <div class="settings-item-icon" style="background:rgba(16,185,129,0.12);color:var(--color-success)">🔑</div>
+                            <div>
+                                <div class="settings-item-label">OpenAI API Key</div>
+                                <div class="settings-item-desc" style="font-size:var(--font-size-xs)">Cần để dùng chế độ AI Vision (~$0.005/phiếu)</div>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:var(--space-2)">
+                            <input type="password" id="input-api-key" class="form-input" 
+                                placeholder="sk-..." 
+                                value="${VisionScanner.getAPIKey()}"
+                                style="flex:1;font-family:monospace;font-size:var(--font-size-sm)">
+                            <button class="btn btn-sm btn-secondary" id="btn-toggle-key" style="min-width:40px" title="Hiện/ẩn">👁</button>
+                            <button class="btn btn-sm btn-primary" id="btn-test-key" style="min-width:60px">Test</button>
+                        </div>
+                        <div id="api-key-status" style="font-size:var(--font-size-xs);min-height:1.2em"></div>
+                    </div>
+                    <div class="settings-item" id="setting-verify-mode">
+                        <div class="settings-item-left">
+                            <div class="settings-item-icon" style="background:rgba(245,158,11,0.12);color:var(--color-warning)">🛡️</div>
+                            <div>
+                                <div class="settings-item-label">Xác minh kết quả</div>
+                                <div class="settings-item-desc" style="font-size:var(--font-size-xs)">Kiểm tra chéo để tăng độ chính xác</div>
+                            </div>
+                        </div>
+                        <select class="form-select" id="select-verify-mode" style="width:auto;min-height:36px;padding:var(--space-2) var(--space-8) var(--space-2) var(--space-3)">
+                            <option value="validate" ${VisionScanner.getVerifyMode() === 'validate' ? 'selected' : ''}>✅ Validate (khuyến nghị)</option>
+                            <option value="double" ${VisionScanner.getVerifyMode() === 'double' ? 'selected' : ''}>🔄 Double-read (2x cost)</option>
+                            <option value="none" ${VisionScanner.getVerifyMode() === 'none' ? 'selected' : ''}>⚡ Không (nhanh nhất)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
             <!-- Data -->
             <div class="settings-section">
                 <div class="settings-section-title" data-i18n="settings.data">${I18n.t('settings.data')}</div>
@@ -502,6 +555,56 @@ const App = (() => {
         document.getElementById('setting-backup').addEventListener('click', handleBackup);
         document.getElementById('setting-restore').addEventListener('click', handleRestore);
         document.getElementById('setting-clear').addEventListener('click', handleClearData);
+
+        // ── AI Vision settings ──
+        document.getElementById('select-scan-mode')?.addEventListener('change', (e) => {
+            VisionScanner.setScanMode(e.target.value);
+            const labels = { auto: '🔄 Auto', vision: '🤖 AI Vision', omr: '📐 OMR' };
+            UIHelpers.showToast(`Chế độ quét: ${labels[e.target.value]}`, 'success');
+        });
+
+        document.getElementById('input-api-key')?.addEventListener('change', (e) => {
+            VisionScanner.setAPIKey(e.target.value);
+            const statusEl = document.getElementById('api-key-status');
+            if (statusEl) {
+                statusEl.innerHTML = e.target.value.trim()
+                    ? '<span style="color:var(--color-success)">✓ Đã lưu</span>'
+                    : '<span style="color:var(--color-text-tertiary)">Chưa có key</span>';
+            }
+        });
+
+        document.getElementById('btn-toggle-key')?.addEventListener('click', () => {
+            const input = document.getElementById('input-api-key');
+            if (input) {
+                input.type = input.type === 'password' ? 'text' : 'password';
+            }
+        });
+
+        document.getElementById('btn-test-key')?.addEventListener('click', async () => {
+            const input = document.getElementById('input-api-key');
+            const statusEl = document.getElementById('api-key-status');
+            const key = input?.value?.trim();
+            if (!key) {
+                if (statusEl) statusEl.innerHTML = '<span style="color:var(--color-warning)">Nhập API key trước</span>';
+                return;
+            }
+            VisionScanner.setAPIKey(key);
+            if (statusEl) statusEl.innerHTML = '<span style="color:var(--color-info)">⏳ Đang kiểm tra...</span>';
+            const result = await VisionScanner.testAPIKey(key);
+            if (result.success) {
+                if (statusEl) statusEl.innerHTML = '<span style="color:var(--color-success)">✅ Kết nối thành công!</span>';
+                UIHelpers.showToast('API key hợp lệ!', 'success');
+            } else {
+                if (statusEl) statusEl.innerHTML = `<span style="color:var(--color-error)">❌ ${UIHelpers.escapeHTML(result.error)}</span>`;
+                UIHelpers.showToast('API key không hợp lệ: ' + result.error, 'error', 5000);
+            }
+        });
+
+        document.getElementById('select-verify-mode')?.addEventListener('change', (e) => {
+            VisionScanner.setVerifyMode(e.target.value);
+            const labels = { validate: '✅ Validate', double: '🔄 Double-read', none: '⚡ Không xác minh' };
+            UIHelpers.showToast(`Xác minh: ${labels[e.target.value]}`, 'success');
+        });
     }
 
     async function handleBackup() {
