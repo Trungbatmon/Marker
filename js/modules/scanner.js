@@ -355,24 +355,45 @@ const Scanner = (() => {
                 }
             }
 
-            // ── Build config ──
+            // ── Build config (must match SheetRenderer PDF layout) ──
             const config = project ? {
                 questionCount: project.totalQuestions,
                 optionCount: project.optionCount,
                 studentIdDigits: project.studentIdDigits || CONSTANTS.STUDENT_ID_DIGITS,
                 examCodeDigits: project.examCodeDigits || CONSTANTS.EXAM_CODE_DIGITS,
                 columns: project.columns || CONSTANTS.DEFAULT_COLUMNS,
-                hasInfoFields: project.hasInfoFields,
-                logoBase64: project.logoBase64
-            } : {
-                // Test Scan — matches standard template defaults
-                questionCount: CONSTANTS.DEFAULT_QUESTIONS,
-                optionCount: CONSTANTS.DEFAULT_OPTIONS,
-                studentIdDigits: CONSTANTS.STUDENT_ID_DIGITS,
-                examCodeDigits: CONSTANTS.EXAM_CODE_DIGITS,
-                columns: CONSTANTS.DEFAULT_COLUMNS,
-                hasInfoFields: true,
-            };
+                hasInfoFields: project.hasInfoFields !== undefined ? project.hasInfoFields : true,
+                hasExamCodeSection: project.hasExamCodeSection !== undefined ? project.hasExamCodeSection : true,
+                headerText: project.headerText || '',
+                logoBase64: project.logoBase64 || null,
+            } : (() => {
+                // Test Scan — use last designer config from localStorage for accurate layout
+                try {
+                    const s = JSON.parse(localStorage.getItem('marker_last_template_config') || '{}');
+                    return {
+                        questionCount: s.questionCount || CONSTANTS.DEFAULT_QUESTIONS,
+                        optionCount: s.optionCount || CONSTANTS.DEFAULT_OPTIONS,
+                        studentIdDigits: s.studentIdDigits || CONSTANTS.STUDENT_ID_DIGITS,
+                        examCodeDigits: s.examCodeDigits || CONSTANTS.EXAM_CODE_DIGITS,
+                        columns: s.columns || CONSTANTS.DEFAULT_COLUMNS,
+                        hasInfoFields: s.hasInfoFields !== undefined ? s.hasInfoFields : true,
+                        hasExamCodeSection: s.hasExamCodeSection !== undefined ? s.hasExamCodeSection : true,
+                        headerText: s.headerText || '',
+                        logoBase64: s.logoBase64 || null,
+                    };
+                } catch(e) {
+                    return {
+                        questionCount: CONSTANTS.DEFAULT_QUESTIONS,
+                        optionCount: CONSTANTS.DEFAULT_OPTIONS,
+                        studentIdDigits: CONSTANTS.STUDENT_ID_DIGITS,
+                        examCodeDigits: CONSTANTS.EXAM_CODE_DIGITS,
+                        columns: CONSTANTS.DEFAULT_COLUMNS,
+                        hasInfoFields: true,
+                        hasExamCodeSection: true,
+                        headerText: '',
+                    };
+                }
+            })();
 
             const threshold = parseFloat(localStorage.getItem(CONSTANTS.LS_KEYS.FILL_THRESHOLD)) || CONSTANTS.DEFAULT_FILL_THRESHOLD;
 
@@ -498,6 +519,7 @@ const Scanner = (() => {
                 studentId: result.studentId || '',
                 examCode: result.examCode || '',
                 answers: result.answers || {},
+                details: result.details || [],
                 correctCount: result.correctCount || 0,
                 wrongCount: result.wrongCount || 0,
                 blankCount: result.blankCount || 0,
@@ -556,6 +578,18 @@ const Scanner = (() => {
         document.getElementById('btn-capture')?.addEventListener('click', capture);
         document.getElementById('btn-flip-camera')?.addEventListener('click', flipCamera);
         document.getElementById('btn-flash')?.addEventListener('click', toggleFlash);
+
+        // Batch import
+        const batchInput = document.getElementById('batch-import-input');
+        if (batchInput && !batchInput._bound) {
+            batchInput._bound = true;
+            batchInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                    processBatch(Array.from(e.target.files));
+                    e.target.value = ''; // Reset for re-selection
+                }
+            });
+        }
     }
 
     // Auto-start/stop camera on view change
@@ -571,6 +605,217 @@ const Scanner = (() => {
         });
     }
 
+    // ── Batch Import ──
+
+    function triggerBatchImport() {
+        const input = document.getElementById('batch-import-input');
+        if (input) input.click();
+    }
+
+    function loadImageFromFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = () => reject(new Error('Cannot load: ' + file.name));
+                img.src = e.target.result;
+            };
+            reader.onerror = () => reject(new Error('Cannot read: ' + file.name));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    async function processBatch(files) {
+        if (!files || files.length === 0) return;
+
+        if (!App.isOpenCVReady()) {
+            UIHelpers.showToast('OpenCV chưa tải xong. Vui lòng đợi...', 'warning', 5000);
+            return;
+        }
+
+        // Build config (same logic as capture)
+        let answerKey = null;
+        let project = null;
+        if (_activeProjectId) {
+            try {
+                const keys = await MarkerDB.getByIndex(MarkerDB.STORES.ANSWER_KEYS, 'projectId', _activeProjectId);
+                if (_activeExamCode) {
+                    answerKey = keys.find(k => k.examCode === _activeExamCode);
+                } else if (keys.length === 1) {
+                    answerKey = keys[0];
+                }
+            } catch(e) { console.warn('[Batch] keys error:', e); }
+            try {
+                project = await MarkerDB.get(MarkerDB.STORES.PROJECTS, _activeProjectId);
+            } catch(e) { console.warn('[Batch] project error:', e); }
+        }
+
+        const config = project ? {
+            questionCount: project.totalQuestions,
+            optionCount: project.optionCount,
+            studentIdDigits: project.studentIdDigits || CONSTANTS.STUDENT_ID_DIGITS,
+            examCodeDigits: project.examCodeDigits || CONSTANTS.EXAM_CODE_DIGITS,
+            columns: project.columns || CONSTANTS.DEFAULT_COLUMNS,
+            hasInfoFields: project.hasInfoFields !== undefined ? project.hasInfoFields : true,
+            hasExamCodeSection: project.hasExamCodeSection !== undefined ? project.hasExamCodeSection : true,
+            headerText: project.headerText || '',
+            logoBase64: project.logoBase64 || null,
+        } : (() => {
+            try {
+                const s = JSON.parse(localStorage.getItem('marker_last_template_config') || '{}');
+                return {
+                    questionCount: s.questionCount || CONSTANTS.DEFAULT_QUESTIONS,
+                    optionCount: s.optionCount || CONSTANTS.DEFAULT_OPTIONS,
+                    studentIdDigits: s.studentIdDigits || CONSTANTS.STUDENT_ID_DIGITS,
+                    examCodeDigits: s.examCodeDigits || CONSTANTS.EXAM_CODE_DIGITS,
+                    columns: s.columns || CONSTANTS.DEFAULT_COLUMNS,
+                    hasInfoFields: s.hasInfoFields !== undefined ? s.hasInfoFields : true,
+                    hasExamCodeSection: s.hasExamCodeSection !== undefined ? s.hasExamCodeSection : true,
+                    headerText: s.headerText || '',
+                    logoBase64: s.logoBase64 || null,
+                };
+            } catch(e) {
+                return {
+                    questionCount: CONSTANTS.DEFAULT_QUESTIONS, optionCount: CONSTANTS.DEFAULT_OPTIONS,
+                    studentIdDigits: CONSTANTS.STUDENT_ID_DIGITS, examCodeDigits: CONSTANTS.EXAM_CODE_DIGITS,
+                    columns: CONSTANTS.DEFAULT_COLUMNS, hasInfoFields: true, hasExamCodeSection: true, headerText: '',
+                };
+            }
+        })();
+
+        const threshold = parseFloat(localStorage.getItem(CONSTANTS.LS_KEYS.FILL_THRESHOLD)) || CONSTANTS.DEFAULT_FILL_THRESHOLD;
+        const batchResults = [];
+        let processed = 0;
+        const total = files.length;
+
+        UIHelpers.showLoading(`Đang xử lý 0/${total}...`);
+
+        for (const file of files) {
+            processed++;
+            const lt = document.getElementById('loading-text');
+            if (lt) lt.textContent = `Đang xử lý ${processed}/${total}...`;
+
+            try {
+                const img = await loadImageFromFile(file);
+                const canvas = ImageUtils.imageToCanvas(img);
+                const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+                console.log(`[Batch] ${processed}/${total}: ${file.name} (${canvas.width}×${canvas.height})`);
+
+                const result = OMREngine.process(imageData, config, answerKey?.answers, threshold);
+
+                if (result.success) {
+                    const score = project ? ((result.correctCount || 0) * project.pointPerQuestion) : 0;
+                    let blob = null;
+                    try { blob = await ImageUtils.canvasToBlob(canvas); } catch(e) {}
+
+                    if (project) {
+                        const scanResult = {
+                            id: UIHelpers.uuid(),
+                            projectId: _activeProjectId,
+                            answerKeyId: answerKey?.id || null,
+                            studentId: result.studentId || '',
+                            examCode: result.examCode || '',
+                            answers: result.answers || {},
+                            details: result.details || [],
+                            correctCount: result.correctCount || 0,
+                            wrongCount: result.wrongCount || 0,
+                            blankCount: result.blankCount || 0,
+                            multiCount: result.multiCount || 0,
+                            score: parseFloat(score.toFixed(2)) || 0,
+                            scanImage: blob,
+                            processedImage: null,
+                            confidence: result.avgConfidence || 0,
+                            scannedAt: new Date().toISOString(),
+                            verified: false,
+                        };
+                        await MarkerDB.put(MarkerDB.STORES.SCAN_RESULTS, scanResult);
+                    }
+
+                    batchResults.push({
+                        fileName: file.name, success: true, saved: !!project,
+                        studentId: result.studentId || '--',
+                        examCode: result.examCode || '--',
+                        correctCount: result.correctCount || 0,
+                        wrongCount: result.wrongCount || 0,
+                        blankCount: result.blankCount || 0,
+                        score: project ? score.toFixed(2) : '--',
+                    });
+                } else {
+                    batchResults.push({
+                        fileName: file.name, success: false,
+                        error: result.error || 'unknown',
+                        markersFound: result.markersFound || 0,
+                    });
+                }
+            } catch (e) {
+                console.error(`[Batch] Error for ${file.name}:`, e);
+                batchResults.push({ fileName: file.name, success: false, error: e.message || 'unknown' });
+            }
+
+            await new Promise(r => setTimeout(r, 50)); // Keep UI responsive
+        }
+
+        UIHelpers.hideLoading();
+        showBatchResults(batchResults, project);
+    }
+
+    function showBatchResults(results, project) {
+        const successCount = results.filter(r => r.success).length;
+        const failCount = results.length - successCount;
+
+        let tableHtml = '';
+        results.forEach((r, i) => {
+            if (r.success) {
+                tableHtml += `<tr>
+                    <td>${i + 1}</td>
+                    <td><strong>${UIHelpers.escapeHTML(r.studentId)}</strong></td>
+                    <td>${r.correctCount}</td>
+                    <td>${r.score}</td>
+                    <td><span class="badge badge-success">OK</span></td>
+                </tr>`;
+            } else {
+                tableHtml += `<tr style="opacity:0.6">
+                    <td>${i + 1}</td>
+                    <td colspan="3" style="color:var(--color-error)">${UIHelpers.escapeHTML(r.fileName)}: ${r.error}</td>
+                    <td><span class="badge badge-error">Lỗi</span></td>
+                </tr>`;
+            }
+        });
+
+        const content = `
+            <div class="stat-grid" style="margin-bottom:var(--space-4)">
+                <div class="stat-card stat-success">
+                    <div class="stat-value">${successCount}</div>
+                    <div class="stat-label">Thành công</div>
+                </div>
+                <div class="stat-card stat-error">
+                    <div class="stat-value">${failCount}</div>
+                    <div class="stat-label">Thất bại</div>
+                </div>
+            </div>
+            <div style="overflow-x:auto;max-height:50vh;border:1px solid var(--color-border);border-radius:var(--radius-lg)">
+                <table class="results-table">
+                    <thead><tr>
+                        <th>#</th><th>SBD</th><th>Đúng</th><th>Điểm</th><th>Trạng thái</th>
+                    </tr></thead>
+                    <tbody>${tableHtml}</tbody>
+                </table>
+            </div>
+            ${project ? '' : '<p style="text-align:center;color:var(--color-warning);font-size:var(--font-size-sm);margin-top:var(--space-3)">* Chưa chọn dự án — kết quả không được lưu</p>'}
+        `;
+
+        UIHelpers.showModal({
+            title: `Import hoàn tất (${results.length} phiếu)`,
+            content,
+            actions: [{ label: 'Đóng', className: 'btn-primary', value: 'close' }]
+        });
+
+        if (successCount > 0) {
+            EventBus.emit('result:saved', {});
+        }
+    }
+
     return {
         activate,
         startCamera,
@@ -578,6 +823,8 @@ const Scanner = (() => {
         capture,
         flipCamera,
         toggleFlash,
+        triggerBatchImport,
+        processBatch,
         setProject: (id) => { _activeProjectId = id; },
         setExamCode: (code) => { _activeExamCode = code; },
     };

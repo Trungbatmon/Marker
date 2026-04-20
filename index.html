@@ -22,11 +22,11 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="css/variables.css?v=9">
-    <link rel="stylesheet" href="css/base.css?v=9">
-    <link rel="stylesheet" href="css/components.css?v=9">
-    <link rel="stylesheet" href="css/views.css?v=9">
-    <link rel="stylesheet" href="css/animations.css?v=9">
+    <link rel="stylesheet" href="css/variables.css?v=10">
+    <link rel="stylesheet" href="css/base.css?v=10">
+    <link rel="stylesheet" href="css/components.css?v=10">
+    <link rel="stylesheet" href="css/views.css?v=10">
+    <link rel="stylesheet" href="css/animations.css?v=10">
 </head>
 <body>
 
@@ -154,6 +154,18 @@
                                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
                             </svg>
                         </button>
+                    </div>
+                    <div style="text-align:center;padding:var(--space-2) 0;position:relative;z-index:3">
+                        <button class="btn btn-sm" id="btn-batch-import" onclick="Scanner.triggerBatchImport()"
+                            style="background:rgba(255,255,255,0.12);color:#fff;backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.2);gap:var(--space-2)">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                            <span>Import ảnh phiếu</span>
+                        </button>
+                        <input type="file" id="batch-import-input" accept="image/*" multiple style="display:none">
                     </div>
                 </div>
             </section>
@@ -303,25 +315,25 @@
          SCRIPTS
          ══════════════════════════════════════════ -->
     <!-- i18n must load first -->
-    <script src="js/modules/i18n.js?v=9"></script>
+    <script src="js/modules/i18n.js?v=10"></script>
     <!-- Utilities -->
-    <script src="js/utils/constants.js?v=9"></script>
-    <script src="js/utils/ui-helpers.js?v=9"></script>
-    <script src="js/utils/math-utils.js?v=9"></script>
-    <script src="js/utils/image-utils.js?v=9"></script>
-    <script src="js/utils/extensibility.js?v=9"></script>
+    <script src="js/utils/constants.js?v=10"></script>
+    <script src="js/utils/ui-helpers.js?v=10"></script>
+    <script src="js/utils/math-utils.js?v=10"></script>
+    <script src="js/utils/image-utils.js?v=10"></script>
+    <script src="js/utils/extensibility.js?v=10"></script>
     <!-- Database -->
-    <script src="js/db.js?v=9"></script>
+    <script src="js/db.js?v=10"></script>
     <!-- Modules -->
-    <script src="js/modules/project-manager.js?v=9"></script>
-    <script src="js/modules/sheet-designer.js?v=9"></script>
-    <script src="js/modules/sheet-renderer.js?v=9"></script>
-    <script src="js/modules/answer-key.js?v=9"></script>
-    <script src="js/modules/scanner.js?v=9"></script>
-    <script src="js/modules/omr-engine.js?v=9"></script>
-    <script src="js/modules/results.js?v=9"></script>
-    <script src="js/modules/excel-export.js?v=9"></script>
+    <script src="js/modules/project-manager.js?v=10"></script>
+    <script src="js/modules/sheet-designer.js?v=10"></script>
+    <script src="js/modules/sheet-renderer.js?v=10"></script>
+    <script src="js/modules/answer-key.js?v=10"></script>
+    <script src="js/modules/scanner.js?v=10"></script>
+    <script src="js/modules/omr-engine.js?v=10"></script>
+    <script src="js/modules/results.js?v=10"></script>
+    <script src="js/modules/excel-export.js?v=10"></script>
     <!-- Main App (must be last) -->
-    <script src="js/app.js?v=9"></script>
+    <script src="js/app.js?v=10"></script>
 </body>
 </html>

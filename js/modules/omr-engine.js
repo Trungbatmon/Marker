@@ -85,8 +85,11 @@ const OMREngine = (() => {
                 return { success: false, error: 'no_config' };
             }
 
-            // Calculate layout parameters based on the same logic as SheetRenderer
+            // Calculate layout parameters matching SheetRenderer PDF output exactly
             const layout = calculateLayout(config, warped.cols, warped.rows);
+
+            // Debug: log layout info
+            console.log('[OMR] Warped: ' + warped.cols + 'x' + warped.rows + 'px, qStartY_A4=' + layout.qStartY.toFixed(1) + 'mm');
 
             // Step 6-7: Extract Student ID and Exam Code
             const studentId = extractBubbleRegion(warpedThresh, 
@@ -98,6 +101,8 @@ const OMREngine = (() => {
                     layout.ecRegion, 
                     config.examCodeDigits || CONSTANTS.EXAM_CODE_DIGITS, 10, fillThreshold)
                 : '';
+
+            console.log('[OMR] SBD="' + studentId + '" Code="' + examCode + '"');
 
             // Step 8: Analyze Answer Bubbles
             const { answers, details } = analyzeAnswers(
@@ -165,119 +170,131 @@ const OMREngine = (() => {
     }
 
     /**
-     * Calculate layout regions matching SheetRenderer's exact output.
-     * This ensures OMR reads from the same positions as rendered.
+     * Calculate layout regions matching SheetRenderer.generatePDF() EXACTLY.
+     * 
+     * Key insight: Perspective transform maps the 4 marker CENTERS to
+     * the 4 corners of the warped image. So:
+     *   warped(0,0) = A4 paper coordinate (margin+markerSize/2, margin+markerSize/2)
+     *   warped(W,H) = A4 paper coordinate (pageW-margin-markerSize/2, pageH-margin-markerSize/2)
+     * 
+     * To convert any A4 absolute position to warped pixel:
+     *   px = (a4mm - origin) * imgSize / span
      */
     function calculateLayout(config, imgW, imgH) {
         const C = CONSTANTS;
-        
-        // The warped image represents the content between the 4 corner markers.
-        // In SheetRenderer, markers are at: 
-        //   margin + markerSize from edge
-        // The warped image spans from marker center to marker center,
-        // so we need to account for the content area between markers.
 
-        // After perspective transform, the warped image IS the content between markers.
-        // We need to map SheetRenderer's layout (in mm) to pixel coordinates in the warped image.
-        
-        // Content area in mm (the area between corner marker CENTERS)
-        // After perspective transform, warped image spans from TL marker center to BR marker center
-        // Marker centers are at (margin + markerSize/2) from paper edge
-        // So the warped content is from center-to-center
-        const contentW_MM = C.A4_WIDTH_MM - 2 * (C.SAFE_MARGIN_MM + C.MARKER_SIZE_MM / 2);
-        const contentH_MM = C.A4_HEIGHT_MM - 2 * (C.SAFE_MARGIN_MM + C.MARKER_SIZE_MM / 2);
-        
-        const scaleX = imgW / contentW_MM;
-        const scaleY = imgH / contentH_MM;
-        const s = (mm) => mm * scaleX;
-        const sy = (mm) => mm * scaleY;
-        
-        // Content start offset from warped image origin (i.e., from TL marker center)
-        // In the warped image, (0,0) = TL marker center
-        // Content starts at markerSize/2 (edge of marker) + gap
-        const contentOffsetX = C.MARKER_SIZE_MM / 2 + C.MARKER_TO_CONTENT_MM;
-        
-        // === Header area ===
-        // Header text starts at markerSize/2 + 5mm from top of warped image
-        let currentY_MM = C.MARKER_SIZE_MM / 2 + 5;
-        
-        // Estimate header lines height
-        const headerLines = 2; // Assume ~2 lines typical
-        currentY_MM += headerLines * 7 + 3;
-        
-        // Info fields height
+        // ── Warped ↔ A4 coordinate mapping ──
+        const m = C.SAFE_MARGIN_MM;           // 10mm
+        const ms = C.MARKER_SIZE_MM;          // 12mm
+        const originX = m + ms / 2;           // 16mm — TL marker center X on A4
+        const originY = m + ms / 2;           // 16mm — TL marker center Y on A4
+        const spanX = C.A4_WIDTH_MM - 2 * originX;   // 178mm (marker-center to marker-center)
+        const spanY = C.A4_HEIGHT_MM - 2 * originY;  // 265mm
+
+        const sX = imgW / spanX;  // pixels per mm (horizontal)
+        const sY = imgH / spanY;  // pixels per mm (vertical)
+
+        // Convert A4 absolute position (mm from paper edge) → warped pixel
+        const toX = (a4mm) => (a4mm - originX) * sX;
+        const toY = (a4mm) => (a4mm - originY) * sY;
+
+        // ═══════════════════════════════════════════════════════════════
+        // Replicate SheetRenderer.generatePDF() layout EXACTLY.
+        // ALL positions below are in A4 mm from paper top-left edge.
+        // Reference: sheet-renderer.js generatePDF() lines 344-554
+        // ═══════════════════════════════════════════════════════════════
+
+        let currentY = m + ms + 5; // 27mm (PDF line 358)
+
+        // ── Header text ──
+        const headerLines = (config.headerText || '').split('\n').filter(l => l.trim());
+        if (headerLines.length > 0) {
+            currentY += headerLines.length * 6; // PDF: 6mm per header line
+        }
+        currentY += 3; // gap after header (PDF line 380)
+
+        // ── Info fields (Name, Class, DOB) ──
         if (config.hasInfoFields !== false) {
-            currentY_MM += 8 + 10; // name line + class/DOB line + margin
+            let infoY = currentY;
+            if (config.logoBase64) {
+                const logoBottom = m + ms + 18 + 5;
+                if (infoY < logoBottom) infoY = logoBottom;
+            }
+            infoY += 8;  // after Name line → Class/DOB line (PDF line 402)
+            currentY = infoY + 10; // gap after info fields (PDF line 412)
         }
 
-        // === SBD Section ===
+        // ── Student ID (SBD) Section ──
         const sidDigits = config.studentIdDigits || C.STUDENT_ID_DIGITS;
         const ecDigits = config.examCodeDigits || C.EXAM_CODE_DIGITS;
-        
-        // Usable width between marker inner edges in the warped coordinate system
-        // In warped space: total width = contentW_MM, markers extend markerSize/2 from each edge
-        const usableW_MM = contentW_MM - 2 * (C.MARKER_SIZE_MM / 2);
-        const totalIdBlockWidth_MM = (sidDigits * C.BUBBLE_SPACING_X_MM) + 
-            (ecDigits > 0 ? 25 + ecDigits * C.BUBBLE_SPACING_X_MM : 0);
-        
-        let startXOffset = (usableW_MM - totalIdBlockWidth_MM) / 2;
-        if (isNaN(startXOffset) || startXOffset < 0) startXOffset = 0;
-        
-        // Position relative to warped origin (TL marker center)
-        const sidStartX_MM = C.MARKER_SIZE_MM / 2 + startXOffset;
-        const sidStartY_MM = currentY_MM + 5;
-        
+        const hasEC = config.hasExamCodeSection !== false;
+        const safeEc = hasEC ? (isNaN(ecDigits) ? 0 : ecDigits) : 0;
+        const safeSid = isNaN(sidDigits) ? C.STUDENT_ID_DIGITS : sidDigits;
+
+        // Usable width = space between marker inner edges (PDF line 416)
+        const usableW = C.A4_WIDTH_MM - 2 * m - 2 * ms; // 166mm
+        const totalIdBlock = (safeSid * C.BUBBLE_SPACING_X_MM) +
+            (safeEc > 0 ? 25 + safeEc * C.BUBBLE_SPACING_X_MM : 0);
+
+        let startXOff = (usableW - totalIdBlock) / 2;
+        if (isNaN(startXOff) || startXOff < 0) startXOff = 0;
+
+        // SBD grid origin = center of first bubble (col=0, row=0) in A4 mm
+        const sidStartX = m + ms + startXOff;   // PDF line 427
+        const sidStartY = currentY + 10;         // PDF line 428: +10mm gap before SBD
+
+        // Bounding box for extractBubbleRegion (half-spacing padding)
+        const hsx = C.BUBBLE_SPACING_X_MM / 2;
+        const hsy = C.BUBBLE_SPACING_Y_MM / 2;
+
         const sidRegion = {
-            x: s(sidStartX_MM - C.BUBBLE_SPACING_X_MM / 2),
-            y: sy(sidStartY_MM - C.BUBBLE_SPACING_Y_MM / 2),
-            width: s(sidDigits * C.BUBBLE_SPACING_X_MM),
-            height: sy(10 * C.BUBBLE_SPACING_Y_MM),
+            x: toX(sidStartX - hsx),
+            y: toY(sidStartY - hsy),
+            width: safeSid * C.BUBBLE_SPACING_X_MM * sX,
+            height: 10 * C.BUBBLE_SPACING_Y_MM * sY,
         };
-        
+
+        // Exam Code grid origin (PDF line 452)
+        const ecStartX = sidStartX + safeSid * C.BUBBLE_SPACING_X_MM + 25;
         const ecRegion = {
-            x: s(sidStartX_MM + sidDigits * C.BUBBLE_SPACING_X_MM + 25 - C.BUBBLE_SPACING_X_MM / 2),
-            y: sy(sidStartY_MM - C.BUBBLE_SPACING_Y_MM / 2),
-            width: s(ecDigits * C.BUBBLE_SPACING_X_MM),
-            height: sy(10 * C.BUBBLE_SPACING_Y_MM),
+            x: toX(ecStartX - hsx),
+            y: toY(sidStartY - hsy),
+            width: safeEc * C.BUBBLE_SPACING_X_MM * sX,
+            height: 10 * C.BUBBLE_SPACING_Y_MM * sY,
         };
-        
-        // === Separator ===
-        const separatorY_MM = sidStartY_MM + 10 * C.BUBBLE_SPACING_Y_MM + 8;
-        
-        // === Questions Grid ===
-        const questionsStartY_MM = separatorY_MM + 12;
-        const questionsPerCol = Math.ceil(config.questionCount / (config.columns || 3));
-        const colWidth_MM = usableW_MM / (config.columns || 3);
-        
-        // Calculate adaptive bubble spacing (same as SheetRenderer)
-        const questionNumArea = 12;
-        const rightPadding = 3;
-        const availableForBubbles = colWidth_MM - questionNumArea - rightPadding;
-        const idealSpacing = availableForBubbles / config.optionCount;
-        const minSpacing = C.BUBBLE_DIAMETER_MM + 1;
-        const bubbleSpacingX_MM = Math.max(minSpacing, Math.min(idealSpacing, C.BUBBLE_SPACING_X_MM));
-        
-        // Available height for questions (in warped coordinate space)
-        const bottomLimit_MM = contentH_MM - C.MARKER_SIZE_MM / 2 - 5;
-        const availableH_MM = bottomLimit_MM - questionsStartY_MM;
-        let spacingY_MM = C.BUBBLE_SPACING_Y_MM;
-        if (questionsPerCol * spacingY_MM > availableH_MM) {
-            spacingY_MM = availableH_MM / questionsPerCol;
+
+        // ── Separator ── (PDF line 474)
+        const sepY = sidStartY + 10 * C.BUBBLE_SPACING_Y_MM + 8;
+
+        // ── Questions Grid ── (PDF line 481)
+        const qStartY = sepY + 10; // +10mm after separator
+        const columns = config.columns || C.DEFAULT_COLUMNS;
+        const questionsPerCol = Math.ceil(config.questionCount / columns);
+        const colWidthMM = usableW / columns;
+
+        // Adaptive bubble spacing X (same as SheetRenderer.calcBubbleSpacingX)
+        const qNumArea = 12, rightPad = 3;
+        const availBub = colWidthMM - qNumArea - rightPad;
+        const idealSp = availBub / config.optionCount;
+        const minSp = C.BUBBLE_DIAMETER_MM + 1;
+        const bubbleSpX = Math.max(minSp, Math.min(idealSp, C.BUBBLE_SPACING_X_MM));
+
+        // Vertical spacing (may compress if too many questions)
+        const bottomLim = C.A4_HEIGHT_MM - m - ms - 5;
+        const availH = bottomLim - qStartY;
+        let spY = C.BUBBLE_SPACING_Y_MM;
+        if (questionsPerCol * spY > availH) {
+            spY = availH / questionsPerCol;
         }
-        
+
+        // Bubble start X offset within each column (PDF line 542: colX + 10)
+        const bubbleXOff = 10;
+
         return {
-            sidRegion,
-            ecRegion,
-            questionsStartY_MM,
-            questionsPerCol,
-            colWidth_MM,
-            bubbleSpacingX_MM,
-            spacingY_MM,
-            contentOffsetX,
-            scaleX,
-            scaleY,
-            s,
-            sy,
+            sidRegion, ecRegion,
+            qStartY, questionsPerCol, columns, colWidthMM,
+            bubbleSpX, spY, bubbleXOff,
+            m, ms, toX, toY, sX, sY,
         };
     }
 
@@ -510,35 +527,41 @@ const OMREngine = (() => {
     }
 
     /**
-     * Analyze answer bubbles using layout-matched coordinates
+     * Analyze answer bubbles using A4-matched coordinates.
+     * Positions match SheetRenderer.generatePDF() exactly.
      */
     function analyzeAnswers(warpedThresh, config, imgW, imgH, fillThreshold, layout) {
         const answers = {};
         const details = {};
-        
-        const questionsPerCol = layout.questionsPerCol;
-        const columns = config.columns || 2;
-        
+        const C = CONSTANTS;
+
         for (let q = 1; q <= config.questionCount; q++) {
-            const col = Math.floor((q - 1) / questionsPerCol);
-            const row = (q - 1) % questionsPerCol;
-            
-            // colStartX_MM should use the layout's origin offset instead of hardcoded values
-            // Question number area occupies first 11mm of each column
-            const colStartX_MM = layout.contentOffsetX + col * layout.colWidth_MM;
-            const bubbleStartX_MM = colStartX_MM + 11; // Same as SheetRenderer: s(11)
-            const questionY_MM = layout.questionsStartY_MM + row * layout.spacingY_MM;
-            
+            const col = Math.floor((q - 1) / layout.questionsPerCol);
+            const row = (q - 1) % layout.questionsPerCol;
+
+            // A4 coordinates — exactly matching SheetRenderer.generatePDF()
+            // PDF line 511: colX = m + ms + MARKER_TO_CONTENT_MM + col * colW
+            const colX_A4 = layout.m + layout.ms + C.MARKER_TO_CONTENT_MM + col * layout.colWidthMM;
+            // PDF line 542: bStartX = colX + 10
+            const bubStartX_A4 = colX_A4 + layout.bubbleXOff;
+            // PDF line 517: y = qStartY + row * spacingY
+            const qY_A4 = layout.qStartY + row * layout.spY;
+
             const fills = [];
             for (let opt = 0; opt < config.optionCount; opt++) {
-                const bubbleCenterX = layout.s(bubbleStartX_MM + opt * layout.bubbleSpacingX_MM);
-                const bubbleCenterY = layout.sy(questionY_MM);
-                const bubbleR = layout.s(CONSTANTS.BUBBLE_DIAMETER_MM / 2);
-                
-                // Sample a square region centered on the bubble
-                const sampleSize = Math.round(bubbleR * 1.4); // Slightly smaller than full circle
-                const bx = MathUtils.clamp(Math.round(bubbleCenterX - sampleSize / 2), 0, imgW - 1);
-                const by = MathUtils.clamp(Math.round(bubbleCenterY - sampleSize / 2), 0, imgH - 1);
+                // PDF line 544: bx = bStartX + opt * bubbleSpacingXMM
+                const cx_A4 = bubStartX_A4 + opt * layout.bubbleSpX;
+                const cy_A4 = qY_A4;
+
+                // Convert A4mm → warped pixel
+                const px = layout.toX(cx_A4);
+                const py = layout.toY(cy_A4);
+                const bubbleR = (C.BUBBLE_DIAMETER_MM / 2) * layout.sX;
+
+                // Sample square region centered on bubble
+                const sampleSize = Math.round(bubbleR * 1.4);
+                const bx = MathUtils.clamp(Math.round(px - sampleSize / 2), 0, imgW - 1);
+                const by = MathUtils.clamp(Math.round(py - sampleSize / 2), 0, imgH - 1);
                 const bw = MathUtils.clamp(sampleSize, 1, imgW - bx);
                 const bh = MathUtils.clamp(sampleSize, 1, imgH - by);
 
@@ -547,10 +570,15 @@ const OMREngine = (() => {
                     const nonZero = cv.countNonZero(roi);
                     const fill = nonZero / (bw * bh);
                     roi.delete();
-                    fills.push({ option: CONSTANTS.OPTION_LABELS[opt], fill });
+                    fills.push({ option: C.OPTION_LABELS[opt], fill });
                 } catch (e) {
-                    fills.push({ option: CONSTANTS.OPTION_LABELS[opt], fill: 0 });
+                    fills.push({ option: C.OPTION_LABELS[opt], fill: 0 });
                 }
+            }
+
+            // Debug: log first 3 questions
+            if (q <= 3) {
+                console.log(`[OMR] Q${q}: ${fills.map(f => f.option + ':' + f.fill.toFixed(2)).join(' ')} (threshold=${fillThreshold})`);
             }
 
             // Determine which bubble(s) are marked (R2.2, R2.3, R2.4)
@@ -559,12 +587,12 @@ const OMREngine = (() => {
 
             if (marked.length === 0) {
                 // R2.4: No bubble marked → BLANK
-                answers[q] = CONSTANTS.ANSWER_STATUS.BLANK;
+                answers[q] = C.ANSWER_STATUS.BLANK;
             } else if (marked.length === 1) {
                 answers[q] = marked[0].option;
             } else {
                 // R2.3: Multiple bubbles marked → MULTI
-                answers[q] = CONSTANTS.ANSWER_STATUS.MULTI;
+                answers[q] = C.ANSWER_STATUS.MULTI;
             }
 
             details[q] = {

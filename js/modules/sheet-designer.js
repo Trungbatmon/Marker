@@ -253,6 +253,9 @@ const SheetDesigner = (() => {
         const config = getConfig();
         _currentConfig = config;
 
+        // Persist config for Scanner test-scan mode (OMR layout matching)
+        try { localStorage.setItem('marker_last_template_config', JSON.stringify(config)); } catch(e) {}
+
         const canvas = document.getElementById('sheet-preview-canvas');
         if (!canvas) return;
 

@@ -151,23 +151,64 @@ const ResultsManager = (() => {
             ? await MarkerDB.get(MarkerDB.STORES.PROJECTS, result.projectId) 
             : null;
 
-        // Build answer detail grid
-        const totalQ = project?.totalQuestions || Object.keys(result.answers || {}).length;
-        let detailHtml = '<div class="answer-detail-list">';
-        for (let q = 1; q <= totalQ; q++) {
-            const ans = result.answers?.[q] || '-';
-            const detail = result.details?.find(d => d.question === q);
-            const status = detail?.status || (ans === CONSTANTS.ANSWER_STATUS.BLANK ? 'blank' : 'unknown');
-            const statusClass = status === 'correct' ? 'correct' : status === 'wrong' ? 'wrong' : status === 'blank' ? 'blank' : '';
-
-            detailHtml += `
-                <div class="answer-detail-item ${statusClass}">
-                    <span class="q-num">${q}</span>
-                    <span>${ans}</span>
-                </div>
-            `;
+        // Get answer key for correct answers
+        let answerKey = null;
+        if (result.answerKeyId) {
+            try { answerKey = await MarkerDB.get(MarkerDB.STORES.ANSWER_KEYS, result.answerKeyId); } catch(e) {}
         }
-        detailHtml += '</div>';
+        if (!answerKey && result.projectId) {
+            try {
+                const keys = await MarkerDB.getByIndex(MarkerDB.STORES.ANSWER_KEYS, 'projectId', result.projectId);
+                if (keys.length > 0) answerKey = keys[0];
+            } catch(e) {}
+        }
+
+        const totalQ = project?.totalQuestions || Object.keys(result.answers || {}).length;
+
+        // Build detailed question-by-question table
+        let tableRows = '';
+        for (let q = 1; q <= totalQ; q++) {
+            const selected = result.answers?.[q] || CONSTANTS.ANSWER_STATUS.BLANK;
+            const correct = answerKey?.answers?.[q] || '?';
+            const detail = Array.isArray(result.details)
+                ? result.details.find(d => d.question === q)
+                : null;
+
+            let statusLabel, statusStyle;
+            if (selected === CONSTANTS.ANSWER_STATUS.BLANK || selected === 'BLANK') {
+                statusLabel = '—'; statusStyle = 'color:var(--color-warning)';
+            } else if (selected === CONSTANTS.ANSWER_STATUS.MULTI || selected === 'MULTI') {
+                statusLabel = '⚠'; statusStyle = 'color:var(--color-error)';
+            } else if (correct !== '?' && selected === correct) {
+                statusLabel = '✓'; statusStyle = 'color:var(--color-success);font-weight:700';
+            } else if (correct !== '?') {
+                statusLabel = '✗'; statusStyle = 'color:var(--color-error);font-weight:700';
+            } else {
+                statusLabel = '--'; statusStyle = 'color:var(--color-text-tertiary)';
+            }
+
+            const confidence = detail?.confidence
+                ? Math.round(detail.confidence * 100) + '%'
+                : '--';
+
+            const displaySelected = (selected === 'BLANK' || selected === CONSTANTS.ANSWER_STATUS.BLANK)
+                ? '-'
+                : (selected === 'MULTI' || selected === CONSTANTS.ANSWER_STATUS.MULTI)
+                    ? '⚠'
+                    : selected;
+
+            const rowBg = statusLabel === '✓' ? 'background:rgba(16,185,129,0.06)' :
+                          statusLabel === '✗' ? 'background:rgba(239,68,68,0.06)' : '';
+
+            tableRows += `
+                <tr style="${rowBg}">
+                    <td style="font-weight:600;text-align:center">${q}</td>
+                    <td style="text-align:center;font-weight:700;font-size:var(--font-size-md)">${displaySelected}</td>
+                    <td style="text-align:center;color:var(--color-text-tertiary)">${correct}</td>
+                    <td style="text-align:center;${statusStyle}">${statusLabel}</td>
+                    <td style="text-align:center;font-size:var(--font-size-xs);color:var(--color-text-tertiary)">${confidence}</td>
+                </tr>`;
+        }
 
         const content = `
             <div class="stat-grid" style="margin-bottom:var(--space-4)">
@@ -189,18 +230,31 @@ const ResultsManager = (() => {
                 </div>
             </div>
 
-            <div style="display:flex;gap:var(--space-2);margin-bottom:var(--space-4)">
+            <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;margin-bottom:var(--space-4)">
                 <span class="badge badge-warning">${I18n.t('results.blank')}: ${result.blankCount || 0}</span>
                 <span class="badge badge-error">${I18n.t('results.multi')}: ${result.multiCount || 0}</span>
                 <span class="badge badge-info">${I18n.t('results.exam_code')}: ${result.examCode || '--'}</span>
             </div>
 
-            <div class="divider-label" style="margin-bottom:var(--space-3)">${I18n.t('results.detail')}</div>
-            ${detailHtml}
+            <div class="divider-label" style="margin-bottom:var(--space-3)">Chi tiết bài làm</div>
+            <div style="overflow-x:auto;max-height:50vh;border:1px solid var(--color-border);border-radius:var(--radius-lg)">
+                <table class="results-table" style="font-size:var(--font-size-sm)">
+                    <thead>
+                        <tr>
+                            <th style="text-align:center;width:3em">Câu</th>
+                            <th style="text-align:center;width:3em">Chọn</th>
+                            <th style="text-align:center;width:3em">ĐA</th>
+                            <th style="text-align:center;width:3em">KQ</th>
+                            <th style="text-align:center;width:4em">%</th>
+                        </tr>
+                    </thead>
+                    <tbody>${tableRows}</tbody>
+                </table>
+            </div>
         `;
 
         await UIHelpers.showModal({
-            title: `${I18n.t('results.detail')} — ${result.studentId || I18n.t('results.student_id')}`,
+            title: `Chi tiết — ${result.studentId || 'SBD: --'}`,
             content,
             actions: [
                 { label: I18n.t('action.close'), className: 'btn-secondary', value: 'close' },
