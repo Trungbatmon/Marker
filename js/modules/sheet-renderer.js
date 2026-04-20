@@ -172,16 +172,15 @@ const SheetRenderer = (() => {
             });
         }
 
-        // ── 5. Separator Line ──
+        // ── 5. Separator Line (solid black — OMR landmark) ──
         const separatorY = sidStartY + (10 * s(C.BUBBLE_SPACING_Y_MM)) + s(8);
-        ctx.strokeStyle = '#666666';
-        ctx.lineWidth = s(0.4);
-        ctx.setLineDash([s(2), s(2)]);
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = s(0.8);
+        ctx.setLineDash([]);
         ctx.beginPath();
         ctx.moveTo(margin + markerS, separatorY);
         ctx.lineTo(canvas.width - margin - markerS, separatorY);
         ctx.stroke();
-        ctx.setLineDash([]);
 
         // ── R1.8: Detachable ID zone marker (future) ──
         if (config.detachableId) {
@@ -218,11 +217,11 @@ const SheetRenderer = (() => {
             spacingY = availableH / questionsPerCol;
         }
 
-        // Draw column separator lines for visual clarity
+        // Draw column separator lines (solid dark — OMR landmark)
         if (config.columns > 1) {
-            ctx.strokeStyle = '#cccccc';
-            ctx.lineWidth = s(0.3);
-            ctx.setLineDash([s(1), s(2)]);
+            ctx.strokeStyle = '#333333';
+            ctx.lineWidth = s(0.5);
+            ctx.setLineDash([]);
             for (let col = 1; col < config.columns; col++) {
                 const sepX = margin + markerS + col * colWidth;
                 ctx.beginPath();
@@ -230,7 +229,6 @@ const SheetRenderer = (() => {
                 ctx.lineTo(sepX, canvas.height - margin - markerS);
                 ctx.stroke();
             }
-            ctx.setLineDash([]);
         }
 
         for (let col = 0; col < config.columns; col++) {
@@ -472,13 +470,12 @@ const SheetRenderer = (() => {
             }
         }
 
-        // ── 5. Separator ──
+        // ── 5. Separator (solid black — OMR landmark) ──
         const sepY = sidStartY + (10 * C.BUBBLE_SPACING_Y_MM) + 8;
-        doc.setDrawColor(100);
-        doc.setLineWidth(0.4);
-        doc.setLineDashPattern([2, 2], 0);
-        doc.line(m + ms, sepY, pageW - m - ms, sepY);
+        doc.setDrawColor(0);
+        doc.setLineWidth(0.8);
         doc.setLineDashPattern([], 0);
+        doc.line(m + ms, sepY, pageW - m - ms, sepY);
 
         // ── 6. Questions ──
         const qStartY = sepY + 10;
@@ -498,16 +495,15 @@ const SheetRenderer = (() => {
         doc.setDrawColor(0);
         doc.setFontSize(8);
 
-        // Draw column separator lines
+        // Draw column separator lines (solid dark — OMR landmark)
         if (config.columns > 1) {
-            doc.setDrawColor(180);
-            doc.setLineWidth(0.2);
-            doc.setLineDashPattern([1, 2], 0);
+            doc.setDrawColor(50);
+            doc.setLineWidth(0.5);
+            doc.setLineDashPattern([], 0);
             for (let col = 1; col < config.columns; col++) {
                 const sepX = m + ms + col * colW;
                 doc.line(sepX, qStartY - 5, sepX, pageH - m - ms);
             }
-            doc.setLineDashPattern([], 0);
             doc.setDrawColor(0);
         }
 

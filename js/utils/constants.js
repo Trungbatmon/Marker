@@ -22,7 +22,7 @@ const CONSTANTS = (() => {
         MARKER_TO_CONTENT_MM: 10,   // Min distance from marker to nearest bubble
         TIMING_MARK_W_MM: 3,       // Timing mark width
         TIMING_MARK_H_MM: 1,       // Timing mark height
-        STUDENT_ID_DIGITS: 6,       // Default SBD digit count
+        STUDENT_ID_DIGITS: 8,       // Default SBD digit count
         EXAM_CODE_DIGITS: 3,       // Default exam code digit count
 
         // ── OMR Processing ──
@@ -84,12 +84,12 @@ const CONSTANTS = (() => {
         // ── Question Limits ──
         MIN_QUESTIONS: 10,
         MAX_QUESTIONS: 120,
-        DEFAULT_QUESTIONS: 40,
+        DEFAULT_QUESTIONS: 50,
         DEFAULT_OPTIONS: 4,
 
         // ── Column Options ──
         COLUMN_OPTIONS: [1, 2, 3, 4],
-        DEFAULT_COLUMNS: 2,
+        DEFAULT_COLUMNS: 3,
 
         // ── PDF Generation ──
         PDF_DPI: 72,               // jsPDF default DPI

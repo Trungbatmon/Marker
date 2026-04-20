@@ -277,9 +277,9 @@ const Scanner = (() => {
                 hasInfoFields: project.hasInfoFields,
                 logoBase64: project.logoBase64
             } : {
-                // Test Scan Configuration
-                questionCount: 40,
-                optionCount: 4,
+                // Test Scan — matches standard template defaults
+                questionCount: CONSTANTS.DEFAULT_QUESTIONS,
+                optionCount: CONSTANTS.DEFAULT_OPTIONS,
                 studentIdDigits: CONSTANTS.STUDENT_ID_DIGITS,
                 examCodeDigits: CONSTANTS.EXAM_CODE_DIGITS,
                 columns: CONSTANTS.DEFAULT_COLUMNS,
