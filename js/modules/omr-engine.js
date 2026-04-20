@@ -99,25 +99,33 @@ const OMREngine = (() => {
             // Calculate layout parameters matching SheetRenderer PDF output exactly
             const layout = calculateLayout(config, warped.cols, warped.rows);
 
+            // Create Local Mappers based on Fiducial Sub-markers
+            const idMapper = createLocalMapper(warpedThresh, layout.idBoxMm, layout, CONSTANTS);
+            const qMapper = createLocalMapper(warpedThresh, layout.qBoxMm, layout, CONSTANTS);
+
             // Debug: log layout info
             console.log('[OMR] Warped: ' + warped.cols + 'x' + warped.rows + 'px, qStartY_A4=' + layout.qStartY.toFixed(1) + 'mm');
 
             // Step 6-7: Extract Student ID and Exam Code
+            const sidStartX_A4 = layout.m + layout.ms + layout.startXOff;
+            const sidStartY_A4 = layout.currentY + 10;
+            
             const studentId = extractBubbleRegion(warpedThresh, 
-                layout.sidRegion, 
-                config.studentIdDigits || CONSTANTS.STUDENT_ID_DIGITS, 10, fillThreshold);
+                sidStartX_A4, sidStartY_A4, 
+                config.studentIdDigits || CONSTANTS.STUDENT_ID_DIGITS, 10, fillThreshold, idMapper, layout.sX);
             
             const examCode = (config.examCodeDigits) 
                 ? extractBubbleRegion(warpedThresh, 
-                    layout.ecRegion, 
-                    config.examCodeDigits || CONSTANTS.EXAM_CODE_DIGITS, 10, fillThreshold)
+                    sidStartX_A4 + (config.studentIdDigits || CONSTANTS.STUDENT_ID_DIGITS) * CONSTANTS.BUBBLE_SPACING_X_MM + 25, 
+                    sidStartY_A4,
+                    config.examCodeDigits || CONSTANTS.EXAM_CODE_DIGITS, 10, fillThreshold, idMapper, layout.sX)
                 : '';
 
             console.log('[OMR] SBD="' + studentId + '" Code="' + examCode + '"');
 
             // Step 8: Analyze Answer Bubbles
             const { answers, details } = analyzeAnswers(
-                warpedThresh, config, warped.cols, warped.rows, fillThreshold, layout
+                warpedThresh, config, warped.cols, warped.rows, fillThreshold, layout, qMapper
             );
 
             // Step 9: Grade
@@ -240,7 +248,7 @@ const OMREngine = (() => {
         const ecDigits = config.examCodeDigits || C.EXAM_CODE_DIGITS;
         const hasEC = config.hasExamCodeSection !== false;
         const safeEc = hasEC ? (isNaN(ecDigits) ? 0 : ecDigits) : 0;
-        const safeSid = isNaN(sidDigits) ? C.STUDENT_ID_DIGITS : sidDigits;
+        const safeSid = isNaN(config.studentIdDigits) ? C.STUDENT_ID_DIGITS : config.studentIdDigits;
 
         // Usable width = space between marker inner edges (PDF line 416)
         const usableW = C.A4_WIDTH_MM - 2 * m - 2 * ms; // 166mm
@@ -249,6 +257,10 @@ const OMREngine = (() => {
 
         let startXOff = (usableW - totalIdBlock) / 2;
         if (isNaN(startXOff) || startXOff < 0) startXOff = 0;
+
+        // Sub-marker constants
+        const subM = C.SUB_MARKER_SIZE_MM || 6;
+        const subPad = C.SUB_MARKER_PADDING_MM || 3;
 
         // SBD grid origin = center of first bubble (col=0, row=0) in A4 mm
         const sidStartX = m + ms + startXOff;   // PDF line 427
@@ -259,19 +271,27 @@ const OMREngine = (() => {
         const hsy = C.BUBBLE_SPACING_Y_MM / 2;
 
         const sidRegion = {
-            x: toX(sidStartX - hsx),
-            y: toY(sidStartY - hsy),
-            width: safeSid * C.BUBBLE_SPACING_X_MM * sX,
-            height: 10 * C.BUBBLE_SPACING_Y_MM * sY,
+            x: sidStartX - hsx,
+            y: sidStartY - hsy,
+            width: safeSid * C.BUBBLE_SPACING_X_MM,
+            height: 10 * C.BUBBLE_SPACING_Y_MM,
         };
 
         // Exam Code grid origin (PDF line 452)
         const ecStartX = sidStartX + safeSid * C.BUBBLE_SPACING_X_MM + 25;
         const ecRegion = {
-            x: toX(ecStartX - hsx),
-            y: toY(sidStartY - hsy),
-            width: safeEc * C.BUBBLE_SPACING_X_MM * sX,
-            height: 10 * C.BUBBLE_SPACING_Y_MM * sY,
+            x: ecStartX - hsx,
+            y: sidStartY - hsy,
+            width: safeEc * C.BUBBLE_SPACING_X_MM,
+            height: 10 * C.BUBBLE_SPACING_Y_MM,
+        };
+
+        // ID Block Sub-markers bounding box in mm
+        const idBoxMm = {
+            left: sidStartX - subPad - subM,
+            top: sidStartY - subPad - subM,
+            right: sidStartX + totalIdBlock + subPad,
+            bottom: sidStartY + (9 * C.BUBBLE_SPACING_Y_MM) + subPad
         };
 
         // ── Separator ── (PDF line 474)
@@ -300,9 +320,18 @@ const OMREngine = (() => {
 
         // Bubble start X offset within each column (PDF line 542: colX + 10)
         const bubbleXOff = 10;
+        
+        // Questions Block Sub-markers bounding box in mm
+        const lastColEndX = m + ms + C.MARKER_TO_CONTENT_MM + ((columns - 1) * colWidthMM) + 10 + ((config.optionCount - 1) * bubbleSpX);
+        const qBoxMm = {
+            left: m + ms + C.MARKER_TO_CONTENT_MM - subPad - subM,
+            top: qStartY - subPad - subM,
+            right: lastColEndX + subPad,
+            bottom: qStartY + ((questionsPerCol - 1) * spY) + subPad
+        };
 
         return {
-            sidRegion, ecRegion,
+            sidRegion, ecRegion, idBoxMm, qBoxMm,
             qStartY, questionsPerCol, columns, colWidthMM,
             bubbleSpX, spY, bubbleXOff,
             m, ms, toX, toY, sX, sY,
@@ -504,30 +533,119 @@ const OMREngine = (() => {
     }
 
     /**
-     * Extract digits from a bubble region (for SBD or exam code)
+     * Finds 4 fiducial sub-markers near expected bounding box and returns
+     * an interpolation function mapping A4 mm -> local warped pixels.
      */
-    function extractBubbleRegion(warpedThresh, region, digitCount, valuesPerDigit, threshold) {
-        const { x, y, width, height } = region;
+    function createLocalMapper(warpedThresh, boxMm, layout, C) {
+        const smH = (C.SUB_MARKER_SIZE_MM || 6) / 2;
+        const centersMm = [
+            { x: boxMm.left + smH, y: boxMm.top + smH, label: 'TL' },
+            { x: boxMm.right - smH, y: boxMm.top + smH, label: 'TR' },
+            { x: boxMm.right - smH, y: boxMm.bottom - smH, label: 'BR' },
+            { x: boxMm.left + smH, y: boxMm.bottom - smH, label: 'BL' }
+        ];
         
-        // Clamp to image bounds
-        const rx = MathUtils.clamp(Math.round(x), 0, warpedThresh.cols - 1);
-        const ry = MathUtils.clamp(Math.round(y), 0, warpedThresh.rows - 1);
-        const rw = MathUtils.clamp(Math.round(width), 1, warpedThresh.cols - rx);
-        const rh = MathUtils.clamp(Math.round(height), 1, warpedThresh.rows - ry);
+        const padPx = Math.floor(10 * Math.max(layout.sX, layout.sY));
+        const expectedArea = Math.pow((C.SUB_MARKER_SIZE_MM || 6) * layout.sX, 2);
+        
+        const actualPts = [];
+        
+        for (let i = 0; i < 4; i++) {
+             const cx = layout.toX(centersMm[i].x);
+             const cy = layout.toY(centersMm[i].y);
+             
+             const rx = Math.max(0, cx - padPx);
+             const ry = Math.max(0, cy - padPx);
+             const rw = Math.min(warpedThresh.cols - 1, cx + padPx) - rx;
+             const rh = Math.min(warpedThresh.rows - 1, cy + padPx) - ry;
+             
+             let found = false;
+             if (rw > 10 && rh > 10) {
+                 const roi = warpedThresh.roi(new cv.Rect(rx, ry, Math.floor(rw), Math.floor(rh)));
+                 const contours = new cv.MatVector();
+                 const hierarchy = new cv.Mat();
+                 cv.findContours(roi, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+                 
+                 let bestPt = null;
+                 let bestDiff = Infinity;
+                 
+                 for (let j = 0; j < contours.size(); j++) {
+                     const cnt = contours.get(j);
+                     const area = cv.contourArea(cnt);
+                     if (area > expectedArea * 0.25 && area < expectedArea * 3.0) {
+                         const rect = cv.boundingRect(cnt);
+                         const aspect = rect.width / rect.height;
+                         if (aspect > 0.5 && aspect < 2.0) {
+                              const M = cv.moments(cnt);
+                              if (M.m00 !== 0) {
+                                  const lx = M.m10 / M.m00;
+                                  const ly = M.m01 / M.m00;
+                                  const diff = Math.sqrt(Math.pow(lx - (cx - rx), 2) + Math.pow(ly - (cy - ry), 2));
+                                  if (diff < bestDiff) {
+                                      bestDiff = diff;
+                                      bestPt = { x: rx + lx, y: ry + ly };
+                                  }
+                              }
+                         }
+                     }
+                     cnt.delete();
+                 }
+                 contours.delete();
+                 hierarchy.delete();
+                 roi.delete();
+                 
+                 if (bestPt) {
+                     actualPts.push(bestPt);
+                     found = true;
+                     console.log(`[OMR] Sub-marker ${centersMm[i].label} found at Diff=${bestDiff.toFixed(1)}px`);
+                 }
+             }
+             
+             if (!found) {
+                 console.warn(`[OMR] Sub-marker ${centersMm[i].label} missing! Fallback to mathematical approximation.`);
+                 actualPts.push({ x: cx, y: cy });
+             }
+        }
+        
+        // Bilinear interpolation mapper
+        return (a4x, a4y) => {
+            const u = (boxMm.right - boxMm.left === 0) ? 0 : (a4x - boxMm.left) / (boxMm.right - boxMm.left);
+            const v = (boxMm.bottom - boxMm.top === 0) ? 0 : (a4y - boxMm.top) / (boxMm.bottom - boxMm.top);
+            
+            const topX = actualPts[0].x + u * (actualPts[1].x - actualPts[0].x);
+            const botX = actualPts[3].x + u * (actualPts[2].x - actualPts[3].x);
+            const px = topX + v * (botX - topX);
+            
+            const leftY = actualPts[0].y + v * (actualPts[3].y - actualPts[0].y);
+            const rightY = actualPts[1].y + v * (actualPts[2].y - actualPts[1].y);
+            const py = leftY + u * (rightY - leftY);
+            
+            return { px, py };
+        };
+    }
 
+    /**
+     * Extract digits from a bubble region using Local Mapper coordinates
+     */
+    function extractBubbleRegion(warpedThresh, startX_A4, startY_A4, digitCount, valuesPerDigit, threshold, mapper, sX) {
         let digits = '';
-        const colWidth = rw / digitCount;
-        const rowHeight = rh / valuesPerDigit;
+        const bubbleR = (CONSTANTS.BUBBLE_DIAMETER_MM / 2) * sX;
+        const C = CONSTANTS;
 
         for (let d = 0; d < digitCount; d++) {
             let maxFill = 0;
             let maxVal = 0;
+            const cx_A4 = startX_A4 + d * C.BUBBLE_SPACING_X_MM;
 
             for (let v = 0; v < valuesPerDigit; v++) {
-                const bx = MathUtils.clamp(Math.round(rx + d * colWidth + colWidth * 0.2), 0, warpedThresh.cols - 1);
-                const by = MathUtils.clamp(Math.round(ry + v * rowHeight + rowHeight * 0.2), 0, warpedThresh.rows - 1);
-                const bw = MathUtils.clamp(Math.round(colWidth * 0.6), 1, warpedThresh.cols - bx);
-                const bh = MathUtils.clamp(Math.round(rowHeight * 0.6), 1, warpedThresh.rows - by);
+                const cy_A4 = startY_A4 + v * C.BUBBLE_SPACING_Y_MM;
+                const { px, py } = mapper(cx_A4, cy_A4);
+
+                const sampleSize = Math.round(bubbleR * 1.4);
+                const bx = MathUtils.clamp(Math.round(px - sampleSize / 2), 0, warpedThresh.cols - 1);
+                const by = MathUtils.clamp(Math.round(py - sampleSize / 2), 0, warpedThresh.rows - 1);
+                const bw = MathUtils.clamp(sampleSize, 1, warpedThresh.cols - bx);
+                const bh = MathUtils.clamp(sampleSize, 1, warpedThresh.rows - by);
 
                 try {
                     const roi = warpedThresh.roi(new cv.Rect(bx, by, bw, bh));
@@ -551,10 +669,9 @@ const OMREngine = (() => {
     }
 
     /**
-     * Analyze answer bubbles using A4-matched coordinates.
-     * Positions match SheetRenderer.generatePDF() exactly.
+     * Analyze answer bubbles using A4-matched coordinates via Local Mapper.
      */
-    function analyzeAnswers(warpedThresh, config, imgW, imgH, fillThreshold, layout) {
+    function analyzeAnswers(warpedThresh, config, imgW, imgH, fillThreshold, layout, qMapper) {
         const answers = {};
         const details = {};
         const C = CONSTANTS;
@@ -563,26 +680,20 @@ const OMREngine = (() => {
             const col = Math.floor((q - 1) / layout.questionsPerCol);
             const row = (q - 1) % layout.questionsPerCol;
 
-            // A4 coordinates — exactly matching SheetRenderer.generatePDF()
-            // PDF line 511: colX = m + ms + MARKER_TO_CONTENT_MM + col * colW
+            // A4 coordinates
             const colX_A4 = layout.m + layout.ms + C.MARKER_TO_CONTENT_MM + col * layout.colWidthMM;
-            // PDF line 542: bStartX = colX + 10
             const bubStartX_A4 = colX_A4 + layout.bubbleXOff;
-            // PDF line 517: y = qStartY + row * spacingY
             const qY_A4 = layout.qStartY + row * layout.spY;
 
             const fills = [];
             for (let opt = 0; opt < config.optionCount; opt++) {
-                // PDF line 544: bx = bStartX + opt * bubbleSpacingXMM
                 const cx_A4 = bubStartX_A4 + opt * layout.bubbleSpX;
                 const cy_A4 = qY_A4;
 
-                // Convert A4mm → warped pixel
-                const px = layout.toX(cx_A4);
-                const py = layout.toY(cy_A4);
+                // Use Local Mappe r instead of offset absolute map
+                const { px, py } = qMapper(cx_A4, cy_A4);
                 const bubbleR = (C.BUBBLE_DIAMETER_MM / 2) * layout.sX;
 
-                // Sample square region centered on bubble
                 const sampleSize = Math.round(bubbleR * 1.4);
                 const bx = MathUtils.clamp(Math.round(px - sampleSize / 2), 0, imgW - 1);
                 const by = MathUtils.clamp(Math.round(py - sampleSize / 2), 0, imgH - 1);

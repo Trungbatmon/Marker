@@ -15,6 +15,8 @@ const CONSTANTS = (() => {
         A4_WIDTH_MM: 210,
         A4_HEIGHT_MM: 297,
         MARKER_SIZE_MM: 12,          // Corner marker square size (large for reliable detection)
+        SUB_MARKER_SIZE_MM: 6,       // Fiducial sub-marker size for local block tracking
+        SUB_MARKER_PADDING_MM: 3,    // Padding around blocks before placing a sub-marker
         BUBBLE_DIAMETER_MM: 5,       // Bubble circle diameter
         BUBBLE_SPACING_X_MM: 8,     // Horizontal center-to-center spacing
         BUBBLE_SPACING_Y_MM: 8,     // Vertical center-to-center spacing

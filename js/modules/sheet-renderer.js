@@ -172,6 +172,23 @@ const SheetRenderer = (() => {
             });
         }
 
+        // ── 4.1. Sub-markers for ID Block ──
+        ctx.fillStyle = '#000000';
+        const subM = s(C.SUB_MARKER_SIZE_MM || 6);
+        const subPad = s(C.SUB_MARKER_PADDING_MM || 3);
+        
+        // ID block bounding box in px
+        const idBoxLeft = sidStartX - subPad - subM;
+        const idBoxTop = sidStartY - subPad - subM;
+        const totalIdBlockPx = (safeSidDigits * s(C.BUBBLE_SPACING_X_MM)) + (safeEcDigits > 0 ? s(25) + safeEcDigits * s(C.BUBBLE_SPACING_X_MM) : 0);
+        const idBoxRight = sidStartX + totalIdBlockPx + subPad;
+        const idBoxBottom = sidStartY + (9 * s(C.BUBBLE_SPACING_Y_MM)) + subPad;
+        
+        ctx.fillRect(idBoxLeft, idBoxTop, subM, subM);
+        ctx.fillRect(idBoxRight, idBoxTop, subM, subM);
+        ctx.fillRect(idBoxLeft, idBoxBottom, subM, subM);
+        ctx.fillRect(idBoxRight, idBoxBottom, subM, subM);
+
         // ── 5. Separator Line (solid black — OMR landmark) ──
         const separatorY = sidStartY + (10 * s(C.BUBBLE_SPACING_Y_MM)) + s(8);
         ctx.strokeStyle = '#000000';
@@ -278,7 +295,23 @@ const SheetRenderer = (() => {
                     ctx.fillText(C.OPTION_LABELS[opt], bx, by + s(1));
                 }
             }
+            }
         }
+
+        // ── 6.1 Sub-markers for Questions Block ──
+        ctx.fillStyle = '#000000';
+        const qBoxTop = questionsStartY - subPad - subM;
+        const qBoxBottom = questionsStartY + ((questionsPerCol - 1) * spacingY) + subPad;
+        const qBoxLeft = margin + markerS + s(C.MARKER_TO_CONTENT_MM) - subPad - subM;
+        
+        const lastColStartX = margin + markerS + s(C.MARKER_TO_CONTENT_MM) + ((config.columns - 1) * colWidth) + s(10);
+        const lastColEndX = lastColStartX + ((config.optionCount - 1) * s(bubbleSpacingXMM));
+        const qBoxRight = lastColEndX + subPad;
+        
+        ctx.fillRect(qBoxLeft, qBoxTop, subM, subM);
+        ctx.fillRect(qBoxRight, qBoxTop, subM, subM);
+        ctx.fillRect(qBoxLeft, qBoxBottom, subM, subM);
+        ctx.fillRect(qBoxRight, qBoxBottom, subM, subM);
 
         ctx.restore();
     }
@@ -470,6 +503,24 @@ const SheetRenderer = (() => {
             }
         }
 
+        // ── 4.1. Sub-markers for ID Block ──
+        doc.setFillColor(0, 0, 0);
+        const subM = C.SUB_MARKER_SIZE_MM || 6;
+        const subPad = C.SUB_MARKER_PADDING_MM || 3;
+        
+        // Define bounding box for ID block
+        const idBoxLeft = sidStartX - subPad - subM;
+        const idBoxTop = sidStartY - subPad - subM;
+        // Total block width starts at sidStartX and ends after ecDigits. BUBBLE_SPACING_X_MM acts as an approx center-to-center string. The actual bubble occupies more.
+        const idBoxRight = sidStartX + totalIdBlockWidth_MM + subPad;
+        const idBoxBottom = sidStartY + (9 * C.BUBBLE_SPACING_Y_MM) + subPad;
+        
+        // TL, TR, BL, BR sub-markers
+        doc.rect(idBoxLeft, idBoxTop, subM, subM, 'F');
+        doc.rect(idBoxRight, idBoxTop, subM, subM, 'F');
+        doc.rect(idBoxLeft, idBoxBottom, subM, subM, 'F');
+        doc.rect(idBoxRight, idBoxBottom, subM, subM, 'F');
+
         // ── 5. Separator (solid black — OMR landmark) ──
         const sepY = sidStartY + (10 * C.BUBBLE_SPACING_Y_MM) + 8;
         doc.setDrawColor(0);
@@ -548,6 +599,27 @@ const SheetRenderer = (() => {
                 }
             }
         }
+
+        // ── 6.1 Sub-markers for Questions Block ──
+        doc.setFillColor(0, 0, 0);
+        // Define bounding box for Questions block
+        // Top Y
+        const qBoxTop = qStartY - subPad - subM;
+        // Bottom Y (last row index is questionsPerCol - 1)
+        const qBoxBottom = qStartY + ((questionsPerCol - 1) * spacingY) + subPad;
+        
+        // Left X (first column startX)
+        const qBoxLeft = m + ms + C.MARKER_TO_CONTENT_MM - subPad - subM;
+        // Right X (last column endX)
+        const lastColStartX = m + ms + C.MARKER_TO_CONTENT_MM + ((config.columns - 1) * colW) + 10;
+        const lastColEndX = lastColStartX + ((config.optionCount - 1) * bubbleSpacingXMM);
+        const qBoxRight = lastColEndX + subPad;
+        
+        // TL, TR, BL, BR sub-markers
+        doc.rect(qBoxLeft, qBoxTop, subM, subM, 'F');
+        doc.rect(qBoxRight, qBoxTop, subM, subM, 'F');
+        doc.rect(qBoxLeft, qBoxBottom, subM, subM, 'F');
+        doc.rect(qBoxRight, qBoxBottom, subM, subM, 'F');
 
         // Save
         const filename = `AnswerSheet_${config.questionCount}Q_${config.optionCount}Opt.pdf`;
