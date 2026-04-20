@@ -554,14 +554,14 @@ const OMREngine = (() => {
              const cx = layout.toX(centersMm[i].x);
              const cy = layout.toY(centersMm[i].y);
              
-             const rx = Math.max(0, cx - padPx);
-             const ry = Math.max(0, cy - padPx);
-             const rw = Math.min(warpedThresh.cols - 1, cx + padPx) - rx;
-             const rh = Math.min(warpedThresh.rows - 1, cy + padPx) - ry;
+             const rx = Math.floor(Math.max(0, cx - padPx));
+             const ry = Math.floor(Math.max(0, cy - padPx));
+             const rw = Math.floor(Math.min(warpedThresh.cols - 1, cx + padPx) - rx);
+             const rh = Math.floor(Math.min(warpedThresh.rows - 1, cy + padPx) - ry);
              
              let found = false;
              if (rw > 10 && rh > 10) {
-                 const roi = warpedThresh.roi(new cv.Rect(rx, ry, Math.floor(rw), Math.floor(rh)));
+                 const roi = warpedThresh.roi(new cv.Rect(rx, ry, rw, rh));
                  const contours = new cv.MatVector();
                  const hierarchy = new cv.Mat();
                  cv.findContours(roi, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
