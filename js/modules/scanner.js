@@ -176,63 +176,98 @@ const Scanner = (() => {
      * Capture a frame and process it
      */
     async function capture() {
+        console.log('[Scanner] Capture triggered');
+        
         const video = document.getElementById('scanner-video');
-        if (!video || !_stream) {
-            UIHelpers.showToast(I18n.t('scanner.no_camera'), 'error');
+        const statusEl = document.querySelector('.scanner-status');
+        
+        // ── Validate camera state ──
+        if (!video) {
+            UIHelpers.showToast('Lỗi: Không tìm thấy video element', 'error');
+            console.error('[Scanner] No video element found');
+            return;
+        }
+        
+        if (!_stream) {
+            UIHelpers.showToast('Camera chưa được bật. Đang khởi động lại...', 'warning');
+            console.warn('[Scanner] No stream, restarting camera');
+            await startCamera();
             return;
         }
 
-        // Validate video is actually playing and has data
-        if (video.readyState < 2) {
-            UIHelpers.showToast('Camera chưa sẵn sàng, vui lòng thử lại', 'warning');
+        // Check if camera stream is actually active
+        const tracks = _stream.getVideoTracks();
+        if (!tracks.length || tracks[0].readyState !== 'live') {
+            UIHelpers.showToast('Camera đã bị ngắt. Đang kết nối lại...', 'warning');
+            console.warn('[Scanner] Stream track not live, restarting');
+            await startCamera();
             return;
         }
 
+        // Validate video has data
         if (video.videoWidth === 0 || video.videoHeight === 0) {
-            UIHelpers.showToast('Không nhận được dữ liệu từ camera', 'error');
+            UIHelpers.showToast('Camera chưa sẵn sàng, vui lòng đợi...', 'warning');
+            console.warn('[Scanner] Video dimensions are 0');
             return;
         }
 
-        // Flash effect
+        // ── Visual feedback IMMEDIATELY ──
         showCaptureFlash();
         UIHelpers.vibrate(100);
         UIHelpers.playSound('click');
 
-        // Capture frame at full resolution
-        const canvas = ImageUtils.captureFrame(video);
-        const blob = await ImageUtils.canvasToBlob(canvas);
-
-        console.log(`[Scanner] Captured frame: ${canvas.width}×${canvas.height}`);
-
-        // Update status
-        const statusEl = document.querySelector('.scanner-status');
-        if (statusEl) statusEl.textContent = I18n.t('scanner.processing');
+        if (statusEl) statusEl.textContent = 'Đang xử lý...';
 
         try {
-            // Process with OMR
+            // ── Capture frame ──
+            const canvas = ImageUtils.captureFrame(video);
+            console.log(`[Scanner] Captured frame: ${canvas.width}×${canvas.height}`);
+            
+            let blob = null;
+            try { blob = await ImageUtils.canvasToBlob(canvas); } catch(e) { /* non-critical */ }
+
+            // ── Check OpenCV ──
             if (!App.isOpenCVReady()) {
-                UIHelpers.showToast(I18n.t('app.loading_opencv'), 'warning');
+                // Don't silently return — show a clear message
+                const isVi = I18n.getLang() === 'vi';
+                UIHelpers.showToast(
+                    isVi ? 'OpenCV đang tải... Vui lòng đợi 5-10 giây rồi bấm chụp lại' 
+                         : 'OpenCV is loading... Please wait 5-10s and try again',
+                    'warning', 
+                    5000
+                );
+                if (statusEl) statusEl.innerHTML = `<span style="color:var(--color-warning)">⏳ Đang tải OpenCV...</span>`;
+                console.warn('[Scanner] OpenCV not loaded yet');
                 return;
             }
 
-            UIHelpers.showLoading(I18n.t('scanner.processing'));
+            UIHelpers.showLoading(I18n.t('scanner.processing') || 'Đang xử lý...');
 
-            // Get answer key
+            // ── Get answer key ──
             let answerKey = null;
             if (_activeProjectId) {
-                const keys = await MarkerDB.getByIndex(MarkerDB.STORES.ANSWER_KEYS, 'projectId', _activeProjectId);
-                if (_activeExamCode) {
-                    answerKey = keys.find(k => k.examCode === _activeExamCode);
-                } else if (keys.length === 1) {
-                    answerKey = keys[0];
+                try {
+                    const keys = await MarkerDB.getByIndex(MarkerDB.STORES.ANSWER_KEYS, 'projectId', _activeProjectId);
+                    if (_activeExamCode) {
+                        answerKey = keys.find(k => k.examCode === _activeExamCode);
+                    } else if (keys.length === 1) {
+                        answerKey = keys[0];
+                    }
+                } catch(e) {
+                    console.warn('[Scanner] Failed to get answer keys:', e);
                 }
             }
 
-            const project = _activeProjectId 
-                ? await MarkerDB.get(MarkerDB.STORES.PROJECTS, _activeProjectId) 
-                : null;
+            let project = null;
+            if (_activeProjectId) {
+                try {
+                    project = await MarkerDB.get(MarkerDB.STORES.PROJECTS, _activeProjectId);
+                } catch(e) {
+                    console.warn('[Scanner] Failed to get project:', e);
+                }
+            }
 
-            // Get template config
+            // ── Build config ──
             const config = project ? {
                 questionCount: project.totalQuestions,
                 optionCount: project.optionCount,
@@ -253,40 +288,41 @@ const Scanner = (() => {
 
             const threshold = parseFloat(localStorage.getItem(CONSTANTS.LS_KEYS.FILL_THRESHOLD)) || CONSTANTS.DEFAULT_FILL_THRESHOLD;
 
-            // Process image
+            // ── Process image with OMR ──
+            console.log('[Scanner] Starting OMR processing with config:', JSON.stringify(config));
             const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
             const result = OMREngine.process(imageData, config, answerKey?.answers, threshold);
+            console.log('[Scanner] OMR result:', result);
 
             UIHelpers.hideLoading();
 
             if (result.success) {
-                // Show success
+                // ── Show success ──
                 showScanResult(result, blob, answerKey, project);
                 UIHelpers.playSound('success');
                 UIHelpers.vibrate([50, 50, 50]);
             } else {
-                // Show detailed error
+                // ── Show detailed error ──
                 let errorMsg = '';
                 if (result.error === 'no_markers') {
-                    errorMsg = I18n.t('scanner.error_no_markers') + 
-                        ` (Tìm thấy ${result.markersFound || 0}/4 marker. Ảnh: ${canvas.width}×${canvas.height})`;
+                    errorMsg = (I18n.t('scanner.error_no_markers') || 'Không tìm thấy marker') + 
+                        ` (${result.markersFound || 0}/4). Ảnh: ${canvas.width}×${canvas.height}`;
                 } else if (result.error === 'opencv_not_loaded') {
                     errorMsg = 'OpenCV chưa được tải. Vui lòng đợi và thử lại.';
                 } else {
-                    errorMsg = I18n.t('scanner.error_generic') + (result.message ? `: ${result.message}` : '');
+                    errorMsg = (I18n.t('scanner.error_generic') || 'Lỗi xử lý') + (result.message ? `: ${result.message}` : '');
                 }
-                UIHelpers.showToast(errorMsg, 'error', CONSTANTS.TOAST_DURATION_LONG);
+                UIHelpers.showToast(errorMsg, 'error', CONSTANTS.TOAST_DURATION_LONG || 5000);
                 console.warn('[Scanner] OMR failed:', result);
-                if (statusEl) statusEl.textContent = I18n.t('scanner.guide');
-                // Re-show resolution info
-                logCameraInfo();
             }
         } catch (error) {
             UIHelpers.hideLoading();
-            console.error('[Scanner] Process error:', error);
-            UIHelpers.showToast(I18n.t('scanner.error_generic') + ': ' + error.message, 'error');
-            if (statusEl) statusEl.textContent = I18n.t('scanner.guide');
+            console.error('[Scanner] Capture/Process error:', error);
+            UIHelpers.showToast('Lỗi xử lý ảnh: ' + (error.message || 'Unknown'), 'error', 5000);
         }
+
+        // Always restore status
+        logCameraInfo();
     }
 
     async function showScanResult(result, imageBlob, answerKey, project) {

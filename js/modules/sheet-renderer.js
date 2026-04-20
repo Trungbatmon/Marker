@@ -98,8 +98,8 @@ const SheetRenderer = (() => {
 
             ctx.font = `${s(3.5)}px Inter, Arial, sans-serif`;
             ctx.textAlign = 'left';
-            ctx.fillStyle = '#333333';
-            ctx.lineWidth = s(0.3);
+            ctx.fillStyle = '#000000';
+            ctx.lineWidth = s(0.4);
 
             const isVi = I18n.getLang() === 'vi';
             
@@ -174,8 +174,8 @@ const SheetRenderer = (() => {
 
         // ── 5. Separator Line ──
         const separatorY = sidStartY + (10 * s(C.BUBBLE_SPACING_Y_MM)) + s(8);
-        ctx.strokeStyle = '#999999';
-        ctx.lineWidth = s(0.3);
+        ctx.strokeStyle = '#666666';
+        ctx.lineWidth = s(0.4);
         ctx.setLineDash([s(2), s(2)]);
         ctx.beginPath();
         ctx.moveTo(margin + markerS, separatorY);
@@ -220,8 +220,8 @@ const SheetRenderer = (() => {
 
         // Draw column separator lines for visual clarity
         if (config.columns > 1) {
-            ctx.strokeStyle = '#e0e0e0';
-            ctx.lineWidth = s(0.2);
+            ctx.strokeStyle = '#cccccc';
+            ctx.lineWidth = s(0.3);
             ctx.setLineDash([s(1), s(2)]);
             for (let col = 1; col < config.columns; col++) {
                 const sepX = margin + markerS + col * colWidth;
@@ -254,8 +254,8 @@ const SheetRenderer = (() => {
                 }
 
                 // Question number
-                ctx.fillStyle = '#333333';
-                ctx.font = `${s(3)}px Inter, Arial, sans-serif`;
+                ctx.fillStyle = '#000000';
+                ctx.font = `bold ${s(3)}px Inter, Arial, sans-serif`;
                 ctx.textAlign = 'right';
                 ctx.fillText(String(qNum), colStartX + s(8), y + s(1.5));
 
@@ -269,13 +269,13 @@ const SheetRenderer = (() => {
                     // Draw bubble circle
                     ctx.beginPath();
                     ctx.arc(bx, by, radius, 0, Math.PI * 2);
-                    ctx.strokeStyle = '#333333';
-                    ctx.lineWidth = s(0.3);
+                    ctx.strokeStyle = '#000000';
+                    ctx.lineWidth = s(0.5);
                     ctx.stroke();
 
                     // Option label inside/above bubble
-                    ctx.fillStyle = '#555555';
-                    ctx.font = `${s(2.5)}px Inter, Arial, sans-serif`;
+                    ctx.fillStyle = '#111111';
+                    ctx.font = `bold ${s(2.5)}px Inter, Arial, sans-serif`;
                     ctx.textAlign = 'center';
                     ctx.fillText(C.OPTION_LABELS[opt], bx, by + s(1));
                 }
@@ -292,7 +292,7 @@ const SheetRenderer = (() => {
         const s = (mm) => mm * scale;
 
         // Label
-        ctx.fillStyle = '#333333';
+        ctx.fillStyle = '#000000';
         ctx.font = `bold ${s(3.5)}px Inter, Arial, sans-serif`;
         ctx.textAlign = 'left';
         ctx.fillText(label, startX, startY - s(3));
@@ -302,7 +302,7 @@ const SheetRenderer = (() => {
 
             // Column header (digit position)
             if (showColumnHeaders) {
-                ctx.fillStyle = '#999999';
+                ctx.fillStyle = '#666666';
                 ctx.font = `${s(2.5)}px Inter, Arial, sans-serif`;
                 ctx.textAlign = 'center';
             }
@@ -314,13 +314,13 @@ const SheetRenderer = (() => {
                 // Bubble
                 ctx.beginPath();
                 ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-                ctx.strokeStyle = '#333333';
-                ctx.lineWidth = s(0.3);
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = s(0.5);
                 ctx.stroke();
 
                 // Value label
-                ctx.fillStyle = '#555555';
-                ctx.font = `${s(2.5)}px Inter, Arial, sans-serif`;
+                ctx.fillStyle = '#111111';
+                ctx.font = `bold ${s(2.5)}px Inter, Arial, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.fillText(values[row], cx, cy + s(1));
             }
@@ -391,8 +391,8 @@ const SheetRenderer = (() => {
 
             doc.setFontSize(10);
             doc.setFont(undefined, 'normal');
-            doc.setDrawColor(100);
-            doc.setLineWidth(0.3);
+            doc.setDrawColor(0);
+            doc.setLineWidth(0.4);
             doc.setLineDashPattern([1, 1.5], 0);
 
             const isVi = I18n.getLang() === 'vi';
@@ -434,14 +434,17 @@ const SheetRenderer = (() => {
         doc.text('SBD', sidStartX, sidStartY - 3);
 
         doc.setFontSize(7);
-        doc.setFont(undefined, 'normal');
+        doc.setFont(undefined, 'bold');
         const bubbleR = C.BUBBLE_DIAMETER_MM / 2;
 
         for (let col = 0; col < sidDigits; col++) {
             const cx = sidStartX + (col * C.BUBBLE_SPACING_X_MM);
             for (let row = 0; row < 10; row++) {
                 const cy = sidStartY + (row * C.BUBBLE_SPACING_Y_MM);
+                doc.setDrawColor(0);
+                doc.setLineWidth(0.5);
                 doc.circle(cx, cy, bubbleR, 'S');
+                doc.setTextColor(0);
                 doc.text(String(row), cx, cy + 1, { align: 'center' });
             }
         }
@@ -455,12 +458,15 @@ const SheetRenderer = (() => {
             doc.text(I18n.getLang() === 'vi' ? 'Ma de' : 'Code', ecStartX, sidStartY - 3);
 
             doc.setFontSize(7);
-            doc.setFont(undefined, 'normal');
+            doc.setFont(undefined, 'bold');
             for (let col = 0; col < ecDigits; col++) {
                 const cx = ecStartX + (col * C.BUBBLE_SPACING_X_MM);
                 for (let row = 0; row < 10; row++) {
                     const cy = sidStartY + (row * C.BUBBLE_SPACING_Y_MM);
+                    doc.setDrawColor(0);
+                    doc.setLineWidth(0.5);
                     doc.circle(cx, cy, bubbleR, 'S');
+                    doc.setTextColor(0);
                     doc.text(String(row), cx, cy + 1, { align: 'center' });
                 }
             }
@@ -468,7 +474,8 @@ const SheetRenderer = (() => {
 
         // ── 5. Separator ──
         const sepY = sidStartY + (10 * C.BUBBLE_SPACING_Y_MM) + 8;
-        doc.setDrawColor(150);
+        doc.setDrawColor(100);
+        doc.setLineWidth(0.4);
         doc.setLineDashPattern([2, 2], 0);
         doc.line(m + ms, sepY, pageW - m - ms, sepY);
         doc.setLineDashPattern([], 0);
@@ -488,20 +495,20 @@ const SheetRenderer = (() => {
             spacingY = availableH / questionsPerCol;
         }
 
-        doc.setDrawColor(50);
+        doc.setDrawColor(0);
         doc.setFontSize(8);
 
         // Draw column separator lines
         if (config.columns > 1) {
-            doc.setDrawColor(200);
-            doc.setLineWidth(0.15);
+            doc.setDrawColor(180);
+            doc.setLineWidth(0.2);
             doc.setLineDashPattern([1, 2], 0);
             for (let col = 1; col < config.columns; col++) {
                 const sepX = m + ms + col * colW;
                 doc.line(sepX, qStartY - 5, sepX, pageH - m - ms);
             }
             doc.setLineDashPattern([], 0);
-            doc.setDrawColor(50);
+            doc.setDrawColor(0);
         }
 
         for (let col = 0; col < config.columns; col++) {
@@ -527,18 +534,20 @@ const SheetRenderer = (() => {
 
                 // Question number
                 doc.setFontSize(8);
-                doc.setFont(undefined, 'normal');
-                doc.setTextColor(50);
+                doc.setFont(undefined, 'bold');
+                doc.setTextColor(0);
                 doc.text(String(qNum) + '.', colX + 7, y + 1, { align: 'right' });
 
                 // Bubbles — use adaptive spacing
-                doc.setDrawColor(50);
+                doc.setDrawColor(0);
+                doc.setLineWidth(0.5);
                 doc.setFontSize(7);
+                doc.setFont(undefined, 'bold');
                 const bStartX = colX + 10;
                 for (let opt = 0; opt < config.optionCount; opt++) {
                     const bx = bStartX + (opt * bubbleSpacingXMM);
                     doc.circle(bx, y, bubbleR, 'S');
-                    doc.setTextColor(80);
+                    doc.setTextColor(0);
                     doc.text(C.OPTION_LABELS[opt], bx, y + 1, { align: 'center' });
                 }
             }
