@@ -85,20 +85,23 @@ const OMREngine = (() => {
                 return { success: false, error: 'no_config' };
             }
 
+            // Calculate layout parameters based on the same logic as SheetRenderer
+            const layout = calculateLayout(config, warped.cols, warped.rows);
+
             // Step 6-7: Extract Student ID and Exam Code
             const studentId = extractBubbleRegion(warpedThresh, 
-                getStudentIdRegion(config, warped.cols, warped.rows), 
+                layout.sidRegion, 
                 config.studentIdDigits || CONSTANTS.STUDENT_ID_DIGITS, 10, fillThreshold);
             
-            const examCode = config.examCodeDigits 
+            const examCode = (config.examCodeDigits) 
                 ? extractBubbleRegion(warpedThresh, 
-                    getExamCodeRegion(config, warped.cols, warped.rows), 
+                    layout.ecRegion, 
                     config.examCodeDigits || CONSTANTS.EXAM_CODE_DIGITS, 10, fillThreshold)
                 : '';
 
             // Step 8: Analyze Answer Bubbles
             const { answers, details } = analyzeAnswers(
-                warpedThresh, config, warped.cols, warped.rows, fillThreshold
+                warpedThresh, config, warped.cols, warped.rows, fillThreshold, layout
             );
 
             // Step 9: Grade
@@ -159,6 +162,116 @@ const OMREngine = (() => {
                 try { mat.delete(); } catch (e) { /* already deleted */ }
             });
         }
+    }
+
+    /**
+     * Calculate layout regions matching SheetRenderer's exact output.
+     * This ensures OMR reads from the same positions as rendered.
+     */
+    function calculateLayout(config, imgW, imgH) {
+        const C = CONSTANTS;
+        
+        // The warped image represents the content between the 4 corner markers.
+        // In SheetRenderer, markers are at: 
+        //   margin + markerSize from edge
+        // The warped image spans from marker center to marker center,
+        // so we need to account for the content area between markers.
+
+        // After perspective transform, the warped image IS the content between markers.
+        // We need to map SheetRenderer's layout (in mm) to pixel coordinates in the warped image.
+        
+        // Content area in mm (the area between corner markers)
+        // Markers are at (margin, margin) and the content spans marker-to-marker
+        const contentW_MM = C.A4_WIDTH_MM - 2 * C.SAFE_MARGIN_MM; // Width between markers
+        const contentH_MM = C.A4_HEIGHT_MM - 2 * C.SAFE_MARGIN_MM; // Height between markers
+        
+        const scaleX = imgW / contentW_MM;
+        const scaleY = imgH / contentH_MM;
+        const s = (mm) => mm * scaleX;
+        const sy = (mm) => mm * scaleY;
+        
+        // Content start (marker size + gap from marker to content)
+        const contentOffsetX = C.MARKER_SIZE_MM + C.MARKER_TO_CONTENT_MM;
+        
+        // === Header area ===
+        // Header text starts at markerSize + 5mm from top
+        let currentY_MM = C.MARKER_SIZE_MM + 5;
+        
+        // Estimate header lines height
+        const headerLines = 2; // Assume ~2 lines typical
+        currentY_MM += headerLines * 7 + 3;
+        
+        // Info fields height
+        if (config.hasInfoFields !== false) {
+            currentY_MM += 8 + 10; // name line + class/DOB line + margin
+        }
+
+        // === SBD Section ===
+        const sidDigits = config.studentIdDigits || C.STUDENT_ID_DIGITS;
+        const ecDigits = config.examCodeDigits || C.EXAM_CODE_DIGITS;
+        
+        const usableW_MM = C.A4_WIDTH_MM - 2 * C.SAFE_MARGIN_MM - 2 * C.MARKER_SIZE_MM;
+        const totalIdBlockWidth_MM = (sidDigits * C.BUBBLE_SPACING_X_MM) + 
+            (ecDigits > 0 ? 25 + ecDigits * C.BUBBLE_SPACING_X_MM : 0);
+        
+        let startXOffset = (usableW_MM - totalIdBlockWidth_MM) / 2;
+        if (isNaN(startXOffset) || startXOffset < 0) startXOffset = 0;
+        
+        const sidStartX_MM = C.MARKER_SIZE_MM + startXOffset;
+        const sidStartY_MM = currentY_MM + 5;
+        
+        const sidRegion = {
+            x: s(sidStartX_MM),
+            y: sy(sidStartY_MM),
+            width: s(sidDigits * C.BUBBLE_SPACING_X_MM),
+            height: sy(10 * C.BUBBLE_SPACING_Y_MM),
+        };
+        
+        const ecRegion = {
+            x: s(sidStartX_MM + sidDigits * C.BUBBLE_SPACING_X_MM + 25),
+            y: sy(sidStartY_MM),
+            width: s(ecDigits * C.BUBBLE_SPACING_X_MM),
+            height: sy(10 * C.BUBBLE_SPACING_Y_MM),
+        };
+        
+        // === Separator ===
+        const separatorY_MM = sidStartY_MM + 10 * C.BUBBLE_SPACING_Y_MM + 8;
+        
+        // === Questions Grid ===
+        const questionsStartY_MM = separatorY_MM + 12;
+        const questionsPerCol = Math.ceil(config.questionCount / (config.columns || 2));
+        const colWidth_MM = usableW_MM / (config.columns || 2);
+        
+        // Calculate adaptive bubble spacing (same as SheetRenderer)
+        const questionNumArea = 12;
+        const rightPadding = 3;
+        const availableForBubbles = colWidth_MM - questionNumArea - rightPadding;
+        const idealSpacing = availableForBubbles / config.optionCount;
+        const minSpacing = C.BUBBLE_DIAMETER_MM + 1;
+        const bubbleSpacingX_MM = Math.max(minSpacing, Math.min(idealSpacing, C.BUBBLE_SPACING_X_MM));
+        
+        // Available height for questions
+        const bottomLimit_MM = contentH_MM - C.MARKER_SIZE_MM - 5;
+        const availableH_MM = bottomLimit_MM - questionsStartY_MM;
+        let spacingY_MM = C.BUBBLE_SPACING_Y_MM;
+        if (questionsPerCol * spacingY_MM > availableH_MM) {
+            spacingY_MM = availableH_MM / questionsPerCol;
+        }
+        
+        return {
+            sidRegion,
+            ecRegion,
+            questionsStartY_MM,
+            questionsPerCol,
+            colWidth_MM,
+            bubbleSpacingX_MM,
+            spacingY_MM,
+            contentOffsetX,
+            scaleX,
+            scaleY,
+            s,
+            sy,
+        };
     }
 
     /**
@@ -246,32 +359,6 @@ const OMREngine = (() => {
     }
 
     /**
-     * Calculate Student ID region in normalized coordinates
-     */
-    function getStudentIdRegion(config, imgW, imgH) {
-        const marginRatio = CONSTANTS.SAFE_MARGIN_MM / CONSTANTS.A4_WIDTH_MM;
-        const markerRatio = CONSTANTS.MARKER_SIZE_MM / CONSTANTS.A4_WIDTH_MM;
-        const gapRatio = CONSTANTS.MARKER_TO_CONTENT_MM / CONSTANTS.A4_WIDTH_MM;
-
-        return {
-            x: (marginRatio + markerRatio + gapRatio) * imgW,
-            y: 0.15 * imgH, // Approximate 15% from top (after header)
-            width: ((config.studentIdDigits || 6) * CONSTANTS.BUBBLE_SPACING_X_MM / CONSTANTS.A4_WIDTH_MM) * imgW,
-            height: (10 * CONSTANTS.BUBBLE_SPACING_Y_MM / CONSTANTS.A4_HEIGHT_MM) * imgH,
-        };
-    }
-
-    function getExamCodeRegion(config, imgW, imgH) {
-        const sidRegion = getStudentIdRegion(config, imgW, imgH);
-        return {
-            x: sidRegion.x + sidRegion.width + 0.05 * imgW,
-            y: sidRegion.y,
-            width: ((config.examCodeDigits || 3) * CONSTANTS.BUBBLE_SPACING_X_MM / CONSTANTS.A4_WIDTH_MM) * imgW,
-            height: sidRegion.height,
-        };
-    }
-
-    /**
      * Extract digits from a bubble region (for SBD or exam code)
      */
     function extractBubbleRegion(warpedThresh, region, digitCount, valuesPerDigit, threshold) {
@@ -319,37 +406,37 @@ const OMREngine = (() => {
     }
 
     /**
-     * Analyze answer bubbles
+     * Analyze answer bubbles using layout-matched coordinates
      */
-    function analyzeAnswers(warpedThresh, config, imgW, imgH, fillThreshold) {
+    function analyzeAnswers(warpedThresh, config, imgW, imgH, fillThreshold, layout) {
         const answers = {};
         const details = {};
         
-        const questionsPerCol = Math.ceil(config.questionCount / (config.columns || 2));
+        const questionsPerCol = layout.questionsPerCol;
+        const columns = config.columns || 2;
         
-        // Approximate question area (after SBD section)
-        const qStartY = 0.45 * imgH; // Questions start roughly 45% down
-        const qEndY = imgH * 0.92;   // End at 92%
-        const qMarginX = 0.08 * imgW;
-        const qUsableW = imgW - 2 * qMarginX;
-        const colW = qUsableW / (config.columns || 2);
-        const rowH = (qEndY - qStartY) / questionsPerCol;
-
         for (let q = 1; q <= config.questionCount; q++) {
             const col = Math.floor((q - 1) / questionsPerCol);
             const row = (q - 1) % questionsPerCol;
-
-            const baseX = qMarginX + col * colW + colW * 0.25; // Skip question number area
-            const baseY = qStartY + row * rowH;
-            const bubbleW = colW * 0.6 / config.optionCount;
-            const bubbleH = rowH * 0.7;
-
+            
+            // Match SheetRenderer layout: colStartX = markerSize + contentGap + col * colWidth
+            // Question number area occupies first 11mm of each column
+            const colStartX_MM = CONSTANTS.MARKER_SIZE_MM + CONSTANTS.MARKER_TO_CONTENT_MM + col * layout.colWidth_MM;
+            const bubbleStartX_MM = colStartX_MM + 11; // Same as SheetRenderer: s(11)
+            const questionY_MM = layout.questionsStartY_MM + row * layout.spacingY_MM;
+            
             const fills = [];
             for (let opt = 0; opt < config.optionCount; opt++) {
-                const bx = MathUtils.clamp(Math.round(baseX + opt * bubbleW), 0, imgW - 1);
-                const by = MathUtils.clamp(Math.round(baseY + rowH * 0.15), 0, imgH - 1);
-                const bw = MathUtils.clamp(Math.round(bubbleW * 0.7), 1, imgW - bx);
-                const bh = MathUtils.clamp(Math.round(bubbleH * 0.7), 1, imgH - by);
+                const bubbleCenterX = layout.s(bubbleStartX_MM + opt * layout.bubbleSpacingX_MM);
+                const bubbleCenterY = layout.sy(questionY_MM);
+                const bubbleR = layout.s(CONSTANTS.BUBBLE_DIAMETER_MM / 2);
+                
+                // Sample a square region centered on the bubble
+                const sampleSize = Math.round(bubbleR * 1.4); // Slightly smaller than full circle
+                const bx = MathUtils.clamp(Math.round(bubbleCenterX - sampleSize / 2), 0, imgW - 1);
+                const by = MathUtils.clamp(Math.round(bubbleCenterY - sampleSize / 2), 0, imgH - 1);
+                const bw = MathUtils.clamp(sampleSize, 1, imgW - bx);
+                const bh = MathUtils.clamp(sampleSize, 1, imgH - by);
 
                 try {
                     const roi = warpedThresh.roi(new cv.Rect(bx, by, bw, bh));

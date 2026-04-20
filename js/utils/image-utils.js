@@ -11,7 +11,7 @@ const ImageUtils = (() => {
      * @param {number} maxWidth - Max width to resize to (for performance)
      * @returns {HTMLCanvasElement}
      */
-    function captureFrame(video, maxWidth = 1920) {
+    function captureFrame(video, maxWidth = 3840) {
         const canvas = document.createElement('canvas');
         let w = video.videoWidth;
         let h = video.videoHeight;

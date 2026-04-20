@@ -9,6 +9,7 @@ const Scanner = (() => {
     let _flashOn = false;
     let _activeProjectId = null;
     let _activeExamCode = null;
+    let _cameraRetryLevel = 0; // Track fallback level
 
     /**
      * Initialize scanner for a project
@@ -19,17 +20,89 @@ const Scanner = (() => {
         await startCamera();
     }
 
-    async function startCamera(retryAny = false) {
+    /**
+     * Camera constraint profiles — from highest to lowest quality.
+     * Targets: iPhone 16 Pro Max (4K), Poco X8 Pro (4K), modern phones.
+     * Will try each level in order until one succeeds.
+     */
+    function getCameraConstraints(level) {
+        switch (level) {
+            case 0: // Best: 4K with specific facing mode
+                return {
+                    video: {
+                        facingMode: { exact: _facingMode },
+                        width: { ideal: 3840, min: 1920 },
+                        height: { ideal: 2160, min: 1080 },
+                        frameRate: { ideal: 30, max: 60 },
+                    },
+                    audio: false,
+                };
+            case 1: // High: 4K with preferred (not exact) facing mode
+                return {
+                    video: {
+                        facingMode: { ideal: _facingMode },
+                        width: { ideal: 3840 },
+                        height: { ideal: 2160 },
+                        frameRate: { ideal: 30 },
+                    },
+                    audio: false,
+                };
+            case 2: // Medium: 1080p with preferred facing mode
+                return {
+                    video: {
+                        facingMode: { ideal: _facingMode },
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 },
+                    },
+                    audio: false,
+                };
+            case 3: // Low: Just facing mode
+                return {
+                    video: { facingMode: _facingMode },
+                    audio: false,
+                };
+            case 4: // Fallback: Any camera
+                return {
+                    video: true,
+                    audio: false,
+                };
+            default:
+                return null;
+        }
+    }
+
+    async function startCamera() {
         try {
             // Stop existing stream
             stopCamera();
+            _cameraRetryLevel = 0;
 
-            const constraints = {
-                video: retryAny ? true : { facingMode: _facingMode },
-                audio: false,
-            };
+            // Try progressive constraint levels
+            let stream = null;
+            let usedLevel = -1;
 
-            _stream = await navigator.mediaDevices.getUserMedia(constraints);
+            for (let level = 0; level <= 4; level++) {
+                const constraints = getCameraConstraints(level);
+                if (!constraints) break;
+
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    usedLevel = level;
+                    console.log(`[Scanner] Camera opened at constraint level ${level}`);
+                    break;
+                } catch (err) {
+                    console.warn(`[Scanner] Constraint level ${level} failed:`, err.name, err.message);
+                    // Continue to next level
+                }
+            }
+
+            if (!stream) {
+                throw new Error('No camera available after all fallback levels');
+            }
+
+            _stream = stream;
+            _cameraRetryLevel = usedLevel;
+
             const video = document.getElementById('scanner-video');
             if (video) {
                 video.srcObject = _stream;
@@ -38,18 +111,14 @@ const Scanner = (() => {
                 video.onloadedmetadata = async () => {
                     try {
                         await video.play();
+                        // Log actual camera resolution
+                        logCameraInfo();
                     } catch(e) {
                         console.warn('Auto-play blocked, waiting for user interaction');
                     }
                 };
             }
         } catch (error) {
-            // Fallback: If "environment" or "user" is not allowed/found, try ANY camera.
-            if (!retryAny && (error.name === 'OverconstrainedError' || error.name === 'NotFoundError' || error.name === 'AbortError')) {
-                console.warn('[Scanner] Fallback to any camera');
-                return startCamera(true);
-            }
-            
             console.error('[Scanner] Camera error:', error);
             
             // Show explicit error and prompt button
@@ -66,6 +135,31 @@ const Scanner = (() => {
             } else {
                 UIHelpers.showToast(I18n.t('scanner.no_camera') + ': ' + error.message, 'error');
             }
+        }
+    }
+
+    /**
+     * Log and display actual camera resolution
+     */
+    function logCameraInfo() {
+        if (!_stream) return;
+        const track = _stream.getVideoTracks()[0];
+        if (!track) return;
+
+        const settings = track.getSettings();
+        const w = settings.width || 0;
+        const h = settings.height || 0;
+        const fps = settings.frameRate || 0;
+        const label = track.label || 'Unknown';
+
+        console.log(`[Scanner] Camera: "${label}" ${w}×${h} @${Math.round(fps)}fps (level ${_cameraRetryLevel})`);
+
+        // Show resolution badge on UI
+        const statusEl = document.querySelector('.scanner-status');
+        if (statusEl && w > 0) {
+            const quality = w >= 3840 ? '4K' : w >= 1920 ? 'FHD' : w >= 1280 ? 'HD' : 'SD';
+            const color = w >= 1920 ? 'var(--color-success)' : 'var(--color-warning)';
+            statusEl.innerHTML = `${I18n.t('scanner.guide')} <span style="color:${color};font-weight:600;margin-left:4px">${quality} ${w}×${h}</span>`;
         }
     }
 
@@ -88,14 +182,27 @@ const Scanner = (() => {
             return;
         }
 
+        // Validate video is actually playing and has data
+        if (video.readyState < 2) {
+            UIHelpers.showToast('Camera chưa sẵn sàng, vui lòng thử lại', 'warning');
+            return;
+        }
+
+        if (video.videoWidth === 0 || video.videoHeight === 0) {
+            UIHelpers.showToast('Không nhận được dữ liệu từ camera', 'error');
+            return;
+        }
+
         // Flash effect
         showCaptureFlash();
         UIHelpers.vibrate(100);
         UIHelpers.playSound('click');
 
-        // Capture frame
+        // Capture frame at full resolution
         const canvas = ImageUtils.captureFrame(video);
         const blob = await ImageUtils.canvasToBlob(canvas);
+
+        console.log(`[Scanner] Captured frame: ${canvas.width}×${canvas.height}`);
 
         // Update status
         const statusEl = document.querySelector('.scanner-status');
@@ -158,17 +265,26 @@ const Scanner = (() => {
                 UIHelpers.playSound('success');
                 UIHelpers.vibrate([50, 50, 50]);
             } else {
-                // Show error
-                const errorMsg = result.error === 'no_markers' 
-                    ? I18n.t('scanner.error_no_markers')
-                    : I18n.t('scanner.error_generic');
+                // Show detailed error
+                let errorMsg = '';
+                if (result.error === 'no_markers') {
+                    errorMsg = I18n.t('scanner.error_no_markers') + 
+                        ` (Tìm thấy ${result.markersFound || 0}/4 marker. Ảnh: ${canvas.width}×${canvas.height})`;
+                } else if (result.error === 'opencv_not_loaded') {
+                    errorMsg = 'OpenCV chưa được tải. Vui lòng đợi và thử lại.';
+                } else {
+                    errorMsg = I18n.t('scanner.error_generic') + (result.message ? `: ${result.message}` : '');
+                }
                 UIHelpers.showToast(errorMsg, 'error', CONSTANTS.TOAST_DURATION_LONG);
+                console.warn('[Scanner] OMR failed:', result);
                 if (statusEl) statusEl.textContent = I18n.t('scanner.guide');
+                // Re-show resolution info
+                logCameraInfo();
             }
         } catch (error) {
             UIHelpers.hideLoading();
             console.error('[Scanner] Process error:', error);
-            UIHelpers.showToast(I18n.t('scanner.error_generic'), 'error');
+            UIHelpers.showToast(I18n.t('scanner.error_generic') + ': ' + error.message, 'error');
             if (statusEl) statusEl.textContent = I18n.t('scanner.guide');
         }
     }
@@ -249,9 +365,8 @@ const Scanner = (() => {
             EventBus.emit('result:saved', { result: scanResult });
         }
 
-        // Reset status
-        const statusEl = document.querySelector('.scanner-status');
-        if (statusEl) statusEl.textContent = I18n.t('scanner.guide');
+        // Reset status with camera info
+        logCameraInfo();
     }
 
     function showCaptureFlash() {

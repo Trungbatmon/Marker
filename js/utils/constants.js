@@ -106,8 +106,11 @@ const CONSTANTS = (() => {
             BACK: 'environment',
             FRONT: 'user',
         }),
-        PREFERRED_CAMERA_WIDTH: 1920,
-        PREFERRED_CAMERA_HEIGHT: 1080,
+        PREFERRED_CAMERA_WIDTH: 3840,
+        PREFERRED_CAMERA_HEIGHT: 2160,
+        MIN_CAMERA_WIDTH: 1920,
+        MIN_CAMERA_HEIGHT: 1080,
+        CAPTURE_MAX_WIDTH: 3840,
 
         // ── Export ──
         EXCEL_FILENAME_PREFIX: 'Marker_Results_',

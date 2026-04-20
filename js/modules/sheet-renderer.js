@@ -9,6 +9,29 @@ const SheetRenderer = (() => {
     const C = CONSTANTS;
 
     /**
+     * Calculate the actual bubble spacing needed based on column count and option count.
+     * Prevents bubbles from overlapping in narrow columns.
+     * @param {number} colWidthMM - Column width in mm
+     * @param {number} optionCount - Number of options (4 or 5)
+     * @returns {number} Spacing in mm
+     */
+    function calcBubbleSpacingX(colWidthMM, optionCount) {
+        const questionNumArea = 12; // mm reserved for question number
+        const rightPadding = 3;    // mm padding on right side of column
+        const availableForBubbles = colWidthMM - questionNumArea - rightPadding;
+        
+        // Calculate ideal spacing: distribute bubbles evenly in available space
+        const idealSpacing = availableForBubbles / optionCount;
+        
+        // Don't exceed the default spacing (8mm), but allow smaller if needed
+        // Minimum spacing = bubble diameter + 1mm gap = 6mm
+        const minSpacing = C.BUBBLE_DIAMETER_MM + 1;
+        const spacing = Math.max(minSpacing, Math.min(idealSpacing, C.BUBBLE_SPACING_X_MM));
+        
+        return spacing;
+    }
+
+    /**
      * Render answer sheet to canvas
      * @param {HTMLCanvasElement} canvas
      * @param {Object} config - Template configuration
@@ -180,12 +203,34 @@ const SheetRenderer = (() => {
         // ── 6. Questions Grid ──
         const questionsStartY = separatorY + s(12);
         const questionsPerCol = Math.ceil(config.questionCount / config.columns);
-        const colWidth = (canvas.width - 2 * margin - 2 * markerS) / config.columns;
+        
+        // Calculate usable width for question columns (between markers)
+        const contentUsableW = canvas.width - 2 * margin - 2 * markerS;
+        const colWidth = contentUsableW / config.columns;
+        const colWidthMM = (C.A4_WIDTH_MM - 2 * C.SAFE_MARGIN_MM - 2 * C.MARKER_SIZE_MM) / config.columns;
+
+        // Calculate adaptive bubble spacing based on column width
+        const bubbleSpacingXMM = calcBubbleSpacingX(colWidthMM, config.optionCount);
 
         const availableH = canvas.height - questionsStartY - margin - markerS - s(5);
         let spacingY = s(C.BUBBLE_SPACING_Y_MM);
         if (questionsPerCol * spacingY > availableH) {
             spacingY = availableH / questionsPerCol;
+        }
+
+        // Draw column separator lines for visual clarity
+        if (config.columns > 1) {
+            ctx.strokeStyle = '#e0e0e0';
+            ctx.lineWidth = s(0.2);
+            ctx.setLineDash([s(1), s(2)]);
+            for (let col = 1; col < config.columns; col++) {
+                const sepX = margin + markerS + col * colWidth;
+                ctx.beginPath();
+                ctx.moveTo(sepX, questionsStartY - s(5));
+                ctx.lineTo(sepX, canvas.height - margin - markerS);
+                ctx.stroke();
+            }
+            ctx.setLineDash([]);
         }
 
         for (let col = 0; col < config.columns; col++) {
@@ -214,10 +259,10 @@ const SheetRenderer = (() => {
                 ctx.textAlign = 'right';
                 ctx.fillText(String(qNum), colStartX + s(8), y + s(1.5));
 
-                // Bubbles
+                // Bubbles — use adaptive spacing
                 const bubbleStartX = colStartX + s(11);
                 for (let opt = 0; opt < config.optionCount; opt++) {
-                    const bx = bubbleStartX + (opt * s(C.BUBBLE_SPACING_X_MM));
+                    const bx = bubbleStartX + (opt * s(bubbleSpacingXMM));
                     const by = y;
                     const radius = s(C.BUBBLE_DIAMETER_MM / 2);
 
@@ -433,6 +478,10 @@ const SheetRenderer = (() => {
         const questionsPerCol = Math.ceil(config.questionCount / config.columns);
         const colW = usableW / config.columns;
         
+        // Calculate adaptive bubble spacing for PDF
+        const colWidthMM = usableW / config.columns;
+        const bubbleSpacingXMM = calcBubbleSpacingX(colWidthMM, config.optionCount);
+        
         const availableH = pageH - qStartY - m - ms - 5;
         let spacingY = C.BUBBLE_SPACING_Y_MM;
         if (questionsPerCol * spacingY > availableH) {
@@ -441,6 +490,19 @@ const SheetRenderer = (() => {
 
         doc.setDrawColor(50);
         doc.setFontSize(8);
+
+        // Draw column separator lines
+        if (config.columns > 1) {
+            doc.setDrawColor(200);
+            doc.setLineWidth(0.15);
+            doc.setLineDashPattern([1, 2], 0);
+            for (let col = 1; col < config.columns; col++) {
+                const sepX = m + ms + col * colW;
+                doc.line(sepX, qStartY - 5, sepX, pageH - m - ms);
+            }
+            doc.setLineDashPattern([], 0);
+            doc.setDrawColor(50);
+        }
 
         for (let col = 0; col < config.columns; col++) {
             const colX = m + ms + C.MARKER_TO_CONTENT_MM + (col * colW);
@@ -469,12 +531,12 @@ const SheetRenderer = (() => {
                 doc.setTextColor(50);
                 doc.text(String(qNum) + '.', colX + 7, y + 1, { align: 'right' });
 
-                // Bubbles
+                // Bubbles — use adaptive spacing
                 doc.setDrawColor(50);
                 doc.setFontSize(7);
                 const bStartX = colX + 10;
                 for (let opt = 0; opt < config.optionCount; opt++) {
-                    const bx = bStartX + (opt * C.BUBBLE_SPACING_X_MM);
+                    const bx = bStartX + (opt * bubbleSpacingXMM);
                     doc.circle(bx, y, bubbleR, 'S');
                     doc.setTextColor(80);
                     doc.text(C.OPTION_LABELS[opt], bx, y + 1, { align: 'center' });
