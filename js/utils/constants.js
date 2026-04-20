@@ -28,8 +28,8 @@ const CONSTANTS = (() => {
         EXAM_CODE_DIGITS: 3,       // Default exam code digit count
 
         // ── OMR Processing ──
-        DEFAULT_FILL_THRESHOLD: 0.40,  // 40% fill ratio = marked
-        MIN_FILL_THRESHOLD: 0.20,
+        DEFAULT_FILL_THRESHOLD: 0.35,  // 35% fill ratio = marked
+        MIN_FILL_THRESHOLD: 0.15,
         MAX_FILL_THRESHOLD: 0.70,
         FILL_THRESHOLD_STEP: 0.05,
         MIN_MARKER_AREA_RATIO: 0.0002,  // Min marker area relative to image (very permissive)

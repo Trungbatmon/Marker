@@ -107,8 +107,8 @@ const OMREngine = (() => {
             console.log('[OMR] Warped: ' + warped.cols + 'x' + warped.rows + 'px, qStartY_A4=' + layout.qStartY.toFixed(1) + 'mm');
 
             // Step 6-7: Extract Student ID and Exam Code
-            const sidStartX_A4 = layout.m + layout.ms + layout.startXOff;
-            const sidStartY_A4 = layout.currentY + 10;
+            const sidStartX_A4 = layout.sidStartX;
+            const sidStartY_A4 = layout.sidStartY;
             
             const studentId = extractBubbleRegion(warpedThresh, 
                 sidStartX_A4, sidStartY_A4, 
@@ -335,6 +335,7 @@ const OMREngine = (() => {
             qStartY, questionsPerCol, columns, colWidthMM,
             bubbleSpX, spY, bubbleXOff,
             m, ms, toX, toY, sX, sY,
+            sidStartX, sidStartY
         };
     }
 
