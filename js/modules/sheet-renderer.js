@@ -295,7 +295,6 @@ const SheetRenderer = (() => {
                     ctx.fillText(C.OPTION_LABELS[opt], bx, by + s(1));
                 }
             }
-            }
         }
 
         // ── 6.1 Sub-markers for Questions Block ──
