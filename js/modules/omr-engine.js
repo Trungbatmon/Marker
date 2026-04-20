@@ -95,7 +95,7 @@ const OMREngine = (() => {
             console.log(`[OMR] Q1 origin: qStartY=${layout.qStartY.toFixed(1)}mm → pixel ${layout.toY(layout.qStartY).toFixed(0)}`);
 
             // Step 8: Extract Student ID and Exam Code using DIRECT mapping
-            const studentId = extractBubbleGrid(warpedThresh, 
+            const studentId = extractBubbleGrid(warped, 
                 layout.sidStartX, layout.sidStartY, 
                 config.studentIdDigits || CONSTANTS.STUDENT_ID_DIGITS, 
                 10, fillThreshold, layout);
@@ -103,7 +103,7 @@ const OMREngine = (() => {
             const hasEC = config.hasExamCodeSection !== false;
             const ecDigits = hasEC ? (config.examCodeDigits || CONSTANTS.EXAM_CODE_DIGITS) : 0;
             const examCode = ecDigits > 0
-                ? extractBubbleGrid(warpedThresh, 
+                ? extractBubbleGrid(warped, 
                     layout.sidStartX + (config.studentIdDigits || CONSTANTS.STUDENT_ID_DIGITS) * CONSTANTS.BUBBLE_SPACING_X_MM + 25, 
                     layout.sidStartY,
                     ecDigits, 10, fillThreshold, layout)
@@ -111,9 +111,9 @@ const OMREngine = (() => {
 
             console.log(`[OMR] SBD="${studentId}" Code="${examCode}"`);
 
-            // Step 9: Analyze Answer Bubbles with RELATIVE detection
+            // Step 9: Analyze Answer Bubbles with RELATIVE detection (Grayscale)
             const { answers, details } = analyzeAnswers(
-                warpedThresh, config, fillThreshold, layout
+                warped, config, fillThreshold, layout
             );
 
             // Step 10: Grade
@@ -427,9 +427,6 @@ const OMREngine = (() => {
             tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y
         ]);
         const dstPts = cv.matFromArray(4, 1, cv.CV_32FC2, [
-            0, 0, maxWidth, 0, maxWidth, maxHeight, 0, maxHeight
-        ]);
-
         const M = cv.getPerspectiveTransform(srcPts, dstPts);
         const warped = new cv.Mat();
         cv.warpPerspective(srcGray, warped, M, new cv.Size(maxWidth, maxHeight));
@@ -442,41 +439,50 @@ const OMREngine = (() => {
     }
 
     /**
-     * Sample a single bubble and return its fill ratio.
-     * Uses a circular-ish sample centered on the expected bubble position.
-     * 
-     * @param {cv.Mat} warpedThresh - Binary threshold image
+     * Compute fill ratio using AVERAGE DARKNESS of pixels inside circular boundary
+     * This avoids adaptiveThreshold artifacts!
+     * @param {cv.Mat} warpedGray - Full warped GRAYSCALE image
      * @param {number} cx_A4 - Bubble center X in A4 mm
      * @param {number} cy_A4 - Bubble center Y in A4 mm
      * @param {Object} layout - Layout with toX, toY, sX
      * @returns {number} Fill ratio 0-1
      */
-    function sampleBubble(warpedThresh, cx_A4, cy_A4, layout) {
+    function sampleBubble(warpedGray, cx_A4, cy_A4, layout) {
         const px = layout.toX(cx_A4);
         const py = layout.toY(cy_A4);
         
-        // Sample size = 70% of bubble diameter (sample the INNER core, not the outline)
-        // This is KEY: by sampling only the inner 70%, we avoid picking up the printed
-        // circle outline, which would cause false positives.
+        // Map bubble radius to pixels
         const bubbleRPx = (CONSTANTS.BUBBLE_DIAMETER_MM / 2) * layout.sX;
-        const sampleSize = Math.max(3, Math.round(bubbleRPx * 1.2)); // Inner core sample
         
-        const bx = MathUtils.clamp(Math.round(px - sampleSize / 2), 0, layout.imgW - sampleSize);
-        const by = MathUtils.clamp(Math.round(py - sampleSize / 2), 0, layout.imgH - sampleSize);
-        const bw = Math.min(sampleSize, layout.imgW - bx);
-        const bh = Math.min(sampleSize, layout.imgH - by);
-        
-        if (bw < 2 || bh < 2) return 0;
+        // Inner core sampling (70% radius reduces noise from printed circle outline)
+        const radius = bubbleRPx * 0.70;
 
-        try {
-            const roi = warpedThresh.roi(new cv.Rect(bx, by, bw, bh));
-            const nonZero = cv.countNonZero(roi);
-            const fill = nonZero / (bw * bh);
-            roi.delete();
-            return fill;
-        } catch (e) {
-            return 0;
+        const xStart = Math.max(0, Math.floor(px - radius));
+        const xEnd = Math.min(warpedGray.cols - 1, Math.ceil(px + radius));
+        const yStart = Math.max(0, Math.floor(py - radius));
+        const yEnd = Math.min(warpedGray.rows - 1, Math.ceil(py + radius));
+
+        let count = 0;
+        let darknessSum = 0;
+        const cols = warpedGray.cols;
+        const data = warpedGray.data;
+
+        for (let y = yStart; y <= yEnd; y++) {
+            for (let x = xStart; x <= xEnd; x++) {
+                const dx = x - px;
+                const dy = y - py;
+                if (dx * dx + dy * dy <= radius * radius) {
+                    count++;
+                    const val = data[y * cols + x];
+                    // Darkness: 255 (completely black) to 0 (completely white)
+                    darknessSum += (255 - val);
+                }
+            }
         }
+
+        if (count === 0) return 0;
+        // Average darkness mapped to 0.0 - 1.0 (larger = darker)
+        return (darknessSum / count) / 255.0;
     }
 
     /**
@@ -484,7 +490,7 @@ const OMREngine = (() => {
      * For each digit column, finds the row with highest fill if above threshold.
      * Uses relative detection: the winning row must be clearly dominant.
      */
-    function extractBubbleGrid(warpedThresh, startX_A4, startY_A4, digitCount, valuesPerDigit, threshold, layout) {
+    function extractBubbleGrid(warpedGray, startX_A4, startY_A4, digitCount, valuesPerDigit, threshold, layout) {
         let digits = '';
         const C = CONSTANTS;
 
@@ -494,7 +500,7 @@ const OMREngine = (() => {
 
             for (let v = 0; v < valuesPerDigit; v++) {
                 const cy_A4 = startY_A4 + v * C.BUBBLE_SPACING_Y_MM;
-                const fill = sampleBubble(warpedThresh, cx_A4, cy_A4, layout);
+                const fill = sampleBubble(warpedGray, cx_A4, cy_A4, layout);
                 fills.push({ value: v, fill });
             }
 
@@ -508,10 +514,10 @@ const OMREngine = (() => {
                 console.log(`[OMR] SID digit ${d}: best=${best.value}(${best.fill.toFixed(2)}) second=${second.value}(${second.fill.toFixed(2)}) threshold=${threshold}`);
             }
 
-            // Relative detection: best must be above threshold AND clearly dominant
-            if (best.fill >= threshold && best.fill > second.fill * 1.8) {
+            // Relative detection for grayscale: base darkness is ~0.15-0.20
+            if (best.fill >= threshold && best.fill > second.fill * 1.3) {
                 digits += String(best.value);
-            } else if (best.fill >= threshold * 0.8 && best.fill > second.fill * 2.5) {
+            } else if (best.fill >= threshold * 0.7 && best.fill > second.fill * 1.5) {
                 // Relaxed: if clearly dominant even at slightly below threshold
                 digits += String(best.value);
             } else {
@@ -526,7 +532,7 @@ const OMREngine = (() => {
      * Analyze answer bubbles using DIRECT A4→pixel coordinate mapping.
      * Uses both absolute threshold AND relative comparison for robust detection.
      */
-    function analyzeAnswers(warpedThresh, config, fillThreshold, layout) {
+    function analyzeAnswers(warpedGray, config, fillThreshold, layout) {
         const answers = {};
         const details = {};
         const C = CONSTANTS;
@@ -580,16 +586,17 @@ const OMREngine = (() => {
                 answers[q] = markedAbsolute[0].option;
             } else if (markedAbsolute.length === 0) {
                 // Nothing above absolute threshold — try relative detection
-                // If one bubble is clearly dominant (3x the second) and has significant lift
-                if (dominanceRatio >= 3.0 && liftAboveMedian >= 0.10 && maxFill >= fillThreshold * 0.6) {
+                // For grayscale, an empty bubble is ~0.15-0.20. A light pencil is ~0.30-0.35.
+                // Dominance ratio of 1.35 is robust.
+                if (dominanceRatio >= 1.35 && liftAboveMedian >= 0.08 && maxFill >= fillThreshold * 0.5) {
                     answers[q] = sorted[0].option;
                 } else {
                     answers[q] = C.ANSWER_STATUS.BLANK;
                 }
             } else if (markedAbsolute.length >= 2) {
                 // Multiple above threshold — but check if one is clearly dominant
-                if (dominanceRatio >= 2.0 && sorted[0].fill >= fillThreshold) {
-                    // One is much higher than the rest — likely just noise on others
+                if (dominanceRatio >= 1.3 && liftAboveMedian >= 0.10) {
+                    // One is much darker than the rest
                     answers[q] = sorted[0].option;
                 } else {
                     // Genuinely multiple marks
