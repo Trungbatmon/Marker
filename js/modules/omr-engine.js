@@ -228,15 +228,15 @@ const OMREngine = (() => {
         const sidStartY_MM = currentY_MM + 5;
         
         const sidRegion = {
-            x: s(sidStartX_MM),
-            y: sy(sidStartY_MM),
+            x: s(sidStartX_MM - C.BUBBLE_SPACING_X_MM / 2),
+            y: sy(sidStartY_MM - C.BUBBLE_SPACING_Y_MM / 2),
             width: s(sidDigits * C.BUBBLE_SPACING_X_MM),
             height: sy(10 * C.BUBBLE_SPACING_Y_MM),
         };
         
         const ecRegion = {
-            x: s(sidStartX_MM + sidDigits * C.BUBBLE_SPACING_X_MM + 25),
-            y: sy(sidStartY_MM),
+            x: s(sidStartX_MM + sidDigits * C.BUBBLE_SPACING_X_MM + 25 - C.BUBBLE_SPACING_X_MM / 2),
+            y: sy(sidStartY_MM - C.BUBBLE_SPACING_Y_MM / 2),
             width: s(ecDigits * C.BUBBLE_SPACING_X_MM),
             height: sy(10 * C.BUBBLE_SPACING_Y_MM),
         };
@@ -523,9 +523,9 @@ const OMREngine = (() => {
             const col = Math.floor((q - 1) / questionsPerCol);
             const row = (q - 1) % questionsPerCol;
             
-            // Match SheetRenderer layout: colStartX = markerSize + contentGap + col * colWidth
+            // colStartX_MM should use the layout's origin offset instead of hardcoded values
             // Question number area occupies first 11mm of each column
-            const colStartX_MM = CONSTANTS.MARKER_SIZE_MM + CONSTANTS.MARKER_TO_CONTENT_MM + col * layout.colWidth_MM;
+            const colStartX_MM = layout.contentOffsetX + col * layout.colWidth_MM;
             const bubbleStartX_MM = colStartX_MM + 11; // Same as SheetRenderer: s(11)
             const questionY_MM = layout.questionsStartY_MM + row * layout.spacingY_MM;
             

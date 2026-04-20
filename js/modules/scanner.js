@@ -427,6 +427,15 @@ const Scanner = (() => {
             ? ((result.correctCount || 0) * project.pointPerQuestion).toFixed(2) 
             : '--';
 
+        const answersObj = result.answers || {};
+        const blanks = Object.keys(answersObj)
+            .filter(q => answersObj[q] === 'BLANK' || answersObj[q] === CONSTANTS.ANSWER_STATUS?.BLANK)
+            .map(q => parseInt(q)).sort((a,b)=>a-b);
+            
+        const multis = Object.keys(answersObj)
+            .filter(q => answersObj[q] === 'MULTI' || answersObj[q] === CONSTANTS.ANSWER_STATUS?.MULTI)
+            .map(q => parseInt(q)).sort((a,b)=>a-b);
+
         const content = `
             <div style="text-align:center;margin-bottom:var(--space-4)">
                 <div style="font-size:var(--font-size-3xl);font-weight:700;color:var(--color-success);margin-bottom:var(--space-2)">
@@ -460,6 +469,14 @@ const Scanner = (() => {
                 <span class="badge badge-warning">${I18n.t('results.blank')}: ${result.blankCount || 0}</span>
                 <span class="badge badge-error">${I18n.t('results.multi')}: ${result.multiCount || 0}</span>
             </div>
+            
+            ${blanks.length > 0 ? `<div style="font-size:var(--font-size-sm);color:var(--color-warning);margin-bottom:var(--space-2);text-align:left;">
+                <strong>Câu trống:</strong> ${blanks.join(', ')}
+            </div>` : ''}
+            
+            ${multis.length > 0 ? `<div style="font-size:var(--font-size-sm);color:var(--color-error);margin-bottom:var(--space-4);text-align:left;">
+                <strong>Phạm quy (tô nhiều ô):</strong> ${multis.join(', ')}
+            </div>` : ''}
             
             ${!project ? '<p style="text-align:center;color:var(--color-warning);font-size:var(--font-size-sm)">* <em>Không lưu kết quả do chưa chọn dự án</em></p>' : ''}
         `;
