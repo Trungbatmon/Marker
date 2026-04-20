@@ -180,22 +180,26 @@ const OMREngine = (() => {
         // After perspective transform, the warped image IS the content between markers.
         // We need to map SheetRenderer's layout (in mm) to pixel coordinates in the warped image.
         
-        // Content area in mm (the area between corner markers)
-        // Markers are at (margin, margin) and the content spans marker-to-marker
-        const contentW_MM = C.A4_WIDTH_MM - 2 * C.SAFE_MARGIN_MM; // Width between markers
-        const contentH_MM = C.A4_HEIGHT_MM - 2 * C.SAFE_MARGIN_MM; // Height between markers
+        // Content area in mm (the area between corner marker CENTERS)
+        // After perspective transform, warped image spans from TL marker center to BR marker center
+        // Marker centers are at (margin + markerSize/2) from paper edge
+        // So the warped content is from center-to-center
+        const contentW_MM = C.A4_WIDTH_MM - 2 * (C.SAFE_MARGIN_MM + C.MARKER_SIZE_MM / 2);
+        const contentH_MM = C.A4_HEIGHT_MM - 2 * (C.SAFE_MARGIN_MM + C.MARKER_SIZE_MM / 2);
         
         const scaleX = imgW / contentW_MM;
         const scaleY = imgH / contentH_MM;
         const s = (mm) => mm * scaleX;
         const sy = (mm) => mm * scaleY;
         
-        // Content start (marker size + gap from marker to content)
-        const contentOffsetX = C.MARKER_SIZE_MM + C.MARKER_TO_CONTENT_MM;
+        // Content start offset from warped image origin (i.e., from TL marker center)
+        // In the warped image, (0,0) = TL marker center
+        // Content starts at markerSize/2 (edge of marker) + gap
+        const contentOffsetX = C.MARKER_SIZE_MM / 2 + C.MARKER_TO_CONTENT_MM;
         
         // === Header area ===
-        // Header text starts at markerSize + 5mm from top
-        let currentY_MM = C.MARKER_SIZE_MM + 5;
+        // Header text starts at markerSize/2 + 5mm from top of warped image
+        let currentY_MM = C.MARKER_SIZE_MM / 2 + 5;
         
         // Estimate header lines height
         const headerLines = 2; // Assume ~2 lines typical
@@ -210,14 +214,17 @@ const OMREngine = (() => {
         const sidDigits = config.studentIdDigits || C.STUDENT_ID_DIGITS;
         const ecDigits = config.examCodeDigits || C.EXAM_CODE_DIGITS;
         
-        const usableW_MM = C.A4_WIDTH_MM - 2 * C.SAFE_MARGIN_MM - 2 * C.MARKER_SIZE_MM;
+        // Usable width between marker inner edges in the warped coordinate system
+        // In warped space: total width = contentW_MM, markers extend markerSize/2 from each edge
+        const usableW_MM = contentW_MM - 2 * (C.MARKER_SIZE_MM / 2);
         const totalIdBlockWidth_MM = (sidDigits * C.BUBBLE_SPACING_X_MM) + 
             (ecDigits > 0 ? 25 + ecDigits * C.BUBBLE_SPACING_X_MM : 0);
         
         let startXOffset = (usableW_MM - totalIdBlockWidth_MM) / 2;
         if (isNaN(startXOffset) || startXOffset < 0) startXOffset = 0;
         
-        const sidStartX_MM = C.MARKER_SIZE_MM + startXOffset;
+        // Position relative to warped origin (TL marker center)
+        const sidStartX_MM = C.MARKER_SIZE_MM / 2 + startXOffset;
         const sidStartY_MM = currentY_MM + 5;
         
         const sidRegion = {
@@ -239,8 +246,8 @@ const OMREngine = (() => {
         
         // === Questions Grid ===
         const questionsStartY_MM = separatorY_MM + 12;
-        const questionsPerCol = Math.ceil(config.questionCount / (config.columns || 2));
-        const colWidth_MM = usableW_MM / (config.columns || 2);
+        const questionsPerCol = Math.ceil(config.questionCount / (config.columns || 3));
+        const colWidth_MM = usableW_MM / (config.columns || 3);
         
         // Calculate adaptive bubble spacing (same as SheetRenderer)
         const questionNumArea = 12;
@@ -250,8 +257,8 @@ const OMREngine = (() => {
         const minSpacing = C.BUBBLE_DIAMETER_MM + 1;
         const bubbleSpacingX_MM = Math.max(minSpacing, Math.min(idealSpacing, C.BUBBLE_SPACING_X_MM));
         
-        // Available height for questions
-        const bottomLimit_MM = contentH_MM - C.MARKER_SIZE_MM - 5;
+        // Available height for questions (in warped coordinate space)
+        const bottomLimit_MM = contentH_MM - C.MARKER_SIZE_MM / 2 - 5;
         const availableH_MM = bottomLimit_MM - questionsStartY_MM;
         let spacingY_MM = C.BUBBLE_SPACING_Y_MM;
         if (questionsPerCol * spacingY_MM > availableH_MM) {
@@ -275,18 +282,27 @@ const OMREngine = (() => {
     }
 
     /**
-     * Find 4 corner markers in the thresholded image
+     * Find 4 corner markers in the thresholded image.
+     * Uses morphological operations + multi-criteria filtering.
      */
     function findCornerMarkers(thresh, imgWidth, imgHeight) {
         const contours = new cv.MatVector();
         const hierarchy = new cv.Mat();
+        let morphed = null;
 
         try {
-            cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+            // Morphological close to fill gaps in markers (ink bleed, low res)
+            morphed = new cv.Mat();
+            const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
+            cv.morphologyEx(thresh, morphed, cv.MORPH_CLOSE, kernel);
+            kernel.delete();
+
+            cv.findContours(morphed, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
             const imgArea = imgWidth * imgHeight;
             const minArea = imgArea * CONSTANTS.MIN_MARKER_AREA_RATIO;
             const maxArea = imgArea * CONSTANTS.MAX_MARKER_AREA_RATIO;
+            const aspectTol = CONSTANTS.MARKER_ASPECT_RATIO_TOL;
 
             const candidates = [];
 
@@ -299,27 +315,115 @@ const OMREngine = (() => {
                 const rect = cv.boundingRect(contour);
                 const aspect = MathUtils.aspectRatio(rect.width, rect.height);
 
-                // Markers should be roughly square (aspect ratio close to 1)
-                if (aspect > (1 - CONSTANTS.MARKER_ASPECT_RATIO_TOL)) {
-                    candidates.push({
-                        x: rect.x + rect.width / 2,
-                        y: rect.y + rect.height / 2,
-                        area,
-                        aspect,
-                    });
-                }
+                // Must be roughly square-ish
+                if (aspect < (1 - aspectTol)) continue;
+
+                // Check solidity (contour area / bounding rect area)
+                // Filled squares have high solidity (>0.5 after threshold noise)
+                const solidity = area / (rect.width * rect.height);
+                if (solidity < 0.4) continue;
+
+                const cx = rect.x + rect.width / 2;
+                const cy = rect.y + rect.height / 2;
+
+                candidates.push({
+                    x: cx,
+                    y: cy,
+                    area,
+                    aspect,
+                    solidity,
+                    rect,
+                });
             }
 
-            // Sort by area descending, pick top 4
-            candidates.sort((a, b) => b.area - a.area);
+            console.log(`[OMR] Found ${candidates.length} marker candidates (area ${minArea.toFixed(0)}-${maxArea.toFixed(0)}, img ${imgWidth}×${imgHeight})`);
 
-            // Should find exactly 4 large square-ish contours
-            return candidates.slice(0, 4);
+            if (candidates.length < 4) {
+                // Fallback: try with even more relaxed area
+                // Maybe markers are very small (far camera) or very large (close)
+                const fallbackMin = imgArea * 0.00005;
+                const fallbackMax = imgArea * 0.15;
+                
+                const relaxedCandidates = [];
+                for (let i = 0; i < contours.size(); i++) {
+                    const contour = contours.get(i);
+                    const area = cv.contourArea(contour);
+                    if (area < fallbackMin || area > fallbackMax) continue;
+                    
+                    const rect = cv.boundingRect(contour);
+                    const aspect = MathUtils.aspectRatio(rect.width, rect.height);
+                    if (aspect < 0.35) continue; // Very relaxed
+                    
+                    const solidity = area / (rect.width * rect.height);
+                    if (solidity < 0.3) continue;
+                    
+                    relaxedCandidates.push({
+                        x: rect.x + rect.width / 2,
+                        y: rect.y + rect.height / 2,
+                        area, aspect, solidity, rect,
+                    });
+                }
+                
+                console.log(`[OMR] Fallback: ${relaxedCandidates.length} relaxed candidates`);
+                if (relaxedCandidates.length >= 4) {
+                    return pickBestFourCorners(relaxedCandidates, imgWidth, imgHeight);
+                }
+                return relaxedCandidates.slice(0, 4);
+            }
+
+            // Pick the 4 candidates closest to the 4 corners of the image
+            return pickBestFourCorners(candidates, imgWidth, imgHeight);
 
         } finally {
             contours.delete();
             hierarchy.delete();
+            if (morphed) morphed.delete();
         }
+    }
+
+    /**
+     * From a list of candidates, pick the 4 that best match the 4 corners.
+     * Each corner gets the candidate closest to it (by normalized distance).
+     */
+    function pickBestFourCorners(candidates, imgWidth, imgHeight) {
+        // Expected corner positions (with some margin inward)
+        const corners = [
+            { x: 0, y: 0, label: 'TL' },                       // Top-left
+            { x: imgWidth, y: 0, label: 'TR' },                 // Top-right
+            { x: 0, y: imgHeight, label: 'BL' },                // Bottom-left
+            { x: imgWidth, y: imgHeight, label: 'BR' },         // Bottom-right
+        ];
+
+        const selected = [];
+        const used = new Set();
+
+        for (const corner of corners) {
+            let bestIdx = -1;
+            let bestDist = Infinity;
+
+            for (let i = 0; i < candidates.length; i++) {
+                if (used.has(i)) continue;
+                const dx = (candidates[i].x - corner.x) / imgWidth;
+                const dy = (candidates[i].y - corner.y) / imgHeight;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                // Must be within 40% of the corner (very generous)
+                if (dist < bestDist && dist < 0.4) {
+                    bestDist = dist;
+                    bestIdx = i;
+                }
+            }
+
+            if (bestIdx >= 0) {
+                selected.push(candidates[bestIdx]);
+                used.add(bestIdx);
+                console.log(`[OMR] ${corner.label} marker: (${candidates[bestIdx].x.toFixed(0)}, ${candidates[bestIdx].y.toFixed(0)}) area=${candidates[bestIdx].area.toFixed(0)} aspect=${candidates[bestIdx].aspect.toFixed(2)} dist=${bestDist.toFixed(3)}`);
+            } else {
+                console.warn(`[OMR] No candidate found near ${corner.label} corner`);
+            }
+        }
+
+        return selected;
     }
 
     /**

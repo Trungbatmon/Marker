@@ -14,12 +14,12 @@ const CONSTANTS = (() => {
         // ── Answer Sheet Physical Dimensions (mm) ──
         A4_WIDTH_MM: 210,
         A4_HEIGHT_MM: 297,
-        MARKER_SIZE_MM: 8,           // Corner marker square size
+        MARKER_SIZE_MM: 12,          // Corner marker square size (large for reliable detection)
         BUBBLE_DIAMETER_MM: 5,       // Bubble circle diameter
         BUBBLE_SPACING_X_MM: 8,     // Horizontal center-to-center spacing
         BUBBLE_SPACING_Y_MM: 8,     // Vertical center-to-center spacing
-        SAFE_MARGIN_MM: 15,         // Safe zone from paper edge
-        MARKER_TO_CONTENT_MM: 10,   // Min distance from marker to nearest bubble
+        SAFE_MARGIN_MM: 10,         // Safe zone from paper edge
+        MARKER_TO_CONTENT_MM: 5,    // Min distance from marker to nearest bubble
         TIMING_MARK_W_MM: 3,       // Timing mark width
         TIMING_MARK_H_MM: 1,       // Timing mark height
         STUDENT_ID_DIGITS: 8,       // Default SBD digit count
@@ -30,9 +30,9 @@ const CONSTANTS = (() => {
         MIN_FILL_THRESHOLD: 0.20,
         MAX_FILL_THRESHOLD: 0.70,
         FILL_THRESHOLD_STEP: 0.05,
-        MIN_MARKER_AREA_RATIO: 0.001,  // Min marker area relative to image
-        MAX_MARKER_AREA_RATIO: 0.05,   // Max marker area relative to image
-        MARKER_ASPECT_RATIO_TOL: 0.3,  // Tolerance for square detection (1.0 ± 0.3)
+        MIN_MARKER_AREA_RATIO: 0.0002,  // Min marker area relative to image (very permissive)
+        MAX_MARKER_AREA_RATIO: 0.08,   // Max marker area relative to image
+        MARKER_ASPECT_RATIO_TOL: 0.5,  // Tolerance for square detection (1.0 ± 0.5)
         GAUSSIAN_BLUR_SIZE: 5,
         ADAPTIVE_THRESH_BLOCK: 11,
         ADAPTIVE_THRESH_C: 2,
